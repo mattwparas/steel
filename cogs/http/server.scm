@@ -51,8 +51,8 @@
            (make-url "" #:path target)))]))
 
 (define (request-body-mode headers)
-  ;; Anything but exactly chunked leaves the sender and this server disagreeing
-  ;; about where the body ends
+  ;; If the encodings are anything but exactly chunked, the sender and this
+  ;; server do not agree on where the body ends
   (define encodings (header-tokens headers "Transfer-Encoding"))
   (define declared (content-length headers))
   (cond

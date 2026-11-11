@@ -501,8 +501,8 @@ impl<'a> Parser<'a> {
         }
 
         parser.incremental = true;
-        // read hands back the datum that was written, so the @doc desugar -
-        // which can turn one datum into two expressions - has no place here
+        // read returns the datum that was written, and the @doc desugar can turn
+        // one datum into two expressions, so it is off for the reader
         parser.collect_doc_comments = false;
         parser.more_to_come = more_to_come;
         parser.input_len = input.len() as u32;

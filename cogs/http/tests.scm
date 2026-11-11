@@ -49,8 +49,8 @@
     (define client (tcp-connect (tcp-listener-local-addr listener)))
     (define server (tcp-accept listener))
     (display reply (tcp-stream-writer server))
-    ;; The close thunk holds the only reference to the far end; a collected socket
-    ;; closes on the client, and windows answers that close with a reset
+    ;; The close thunk holds the only reference to the far end. If the socket is
+    ;; collected it closes on the client, and on windows a close sends a reset
     (make-transport (reader client)
                     (tcp-stream-writer client)
                     #:close (lambda ()

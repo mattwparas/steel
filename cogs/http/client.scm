@@ -202,8 +202,8 @@
       (and (>= status 100) (< status 200))))
 
 (define (body-mode headers status method)
-  ;; Anything but exactly chunked leaves the sender and this client disagreeing
-  ;; about where the body ends
+  ;; If the encodings are anything but exactly chunked, the sender and this
+  ;; client do not agree on where the body ends
   (define encodings (header-tokens headers "Transfer-Encoding"))
   (define declared (content-length headers))
   (cond

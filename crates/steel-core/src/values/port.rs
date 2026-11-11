@@ -590,8 +590,8 @@ fn read_full<R: Read>(
 pub enum SteelPortRepr {
     FileInput(String, Peekable<BufReader<File>>),
     FileOutput(String, BufWriter<File>),
-    // Reads are buffered, writes are not: a read ahead moves the file handle
-    // past where the program is, so a write puts it back first
+    // Reads are buffered but writes are not, so a read ahead moves the file
+    // handle past the program's position and a write has to seek back first
     FileInputOutput(String, Peekable<BufReader<File>>),
     StdInput(Peekable<Stdin>),
     StdOutput(Stdout),
@@ -858,8 +858,7 @@ impl SteelPortRepr {
 
         match self {
             SteelPortRepr::FileInput(_, br) | SteelPortRepr::FileInputOutput(_, br) => {
-                // Seek before dropping anything, so a seek that fails leaves
-                // the port where it was
+                // Seek before dropping anything, so a failed seek leaves the port unchanged
                 let at = br.inner.seek(from)?;
                 br.discard_read_ahead();
                 br.consumed_any = at != 0;

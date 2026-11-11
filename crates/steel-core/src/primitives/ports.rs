@@ -216,8 +216,8 @@ pub fn open_output_file(args: &[SteelVal]) -> Result<SteelVal> {
 
 /// Takes a filename `path` and returns a port that both reads and writes that file. The
 /// two directions share one position: a write lands where the last read left off, and a
-/// read picks up after the last write. `exists` is as it is on `open-output-file`, except
-/// that it defaults to `'can-update`, which keeps a file that is already there.
+/// read picks up after the last write. `exists` works as it does on `open-output-file`,
+/// except that it defaults to `'can-update`, which keeps an existing file.
 ///
 /// (open-input-output-file path [#:exists exists]) -> port?
 ///
@@ -1071,7 +1071,7 @@ mod would_block_tests {
         port_over(Box::new(RanOutOfTime))
     }
 
-    // Hand back the client too - dropping it would close the connection
+    // Return the client too - dropping it would close the connection
     fn connected() -> (TcpStream, TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
