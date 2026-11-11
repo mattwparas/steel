@@ -59,8 +59,8 @@ error[E08]: Io
 ### **open-input-output-file**
 Takes a filename `path` and returns a port that both reads and writes that file. The
 two directions share one position: a write lands where the last read left off, and a
-read picks up after the last write. `exists` is as it is on `open-output-file`, except
-that it defaults to `'can-update`, which keeps a file that is already there.
+read picks up after the last write. `exists` works as it does on `open-output-file`,
+except that it defaults to `'can-update`, which keeps an existing file.
 
 (open-input-output-file path [#:exists exists]) -> port?
 

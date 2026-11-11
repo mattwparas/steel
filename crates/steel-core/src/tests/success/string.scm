@@ -27,3 +27,11 @@
 (assert-equal! (utf8-length "aλ") 3)
 (assert-equal! (utf8-length "✅") 3)
 (assert-equal! (utf8-length "") 0)
+
+(assert-equal! (string-contains? "hello" #\l) #true)
+(assert-equal! (string-contains? "hello" #\z) #false)
+(assert-equal! (string-contains? "!#$%&'*+-.^_`|~" #\-) #true)
+(assert-equal! (string-contains? "" #\a) #false)
+(assert-equal! (string-contains? "aλb" #\λ) #true)
+(assert-equal! (string-contains? "abc" #\λ) #false)
+(assert-equal! (with-handler (lambda (err) 'raised) (string-contains? "hello" 1)) 'raised)

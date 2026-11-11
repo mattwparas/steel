@@ -1530,18 +1530,28 @@ fn string_join(
     Ok(joined.into())
 }
 
-/// Searches a string to check if it contains the second argument.
+/// Searches a string to check if it contains the second argument, which may be a
+/// string or a single character.
 ///
-/// (string-contains? string? string?) -> bool?
+/// (string-contains? string? (or/c string? char?)) -> bool?
 ///
 /// # Examples
 /// ```scheme
 /// (string-contains? "hello" "lo") ;;=> #t
 /// (string-contains? "hello" "world") ;;=> #f
+/// (string-contains? "hello" #\l) ;;=> #t
 /// ```
 #[function(name = "string-contains?")]
-fn string_contains(s: &SteelString, contained: &SteelString) -> bool {
-    s.as_str().contains(contained.as_str())
+fn string_contains(s: &SteelString, contained: &SteelVal) -> Result<SteelVal> {
+    match contained {
+        SteelVal::StringV(contained) => {
+            Ok(SteelVal::BoolV(s.as_str().contains(contained.as_str())))
+        }
+        SteelVal::CharV(contained) => Ok(SteelVal::BoolV(s.as_str().contains(*contained))),
+        other => {
+            stop!(TypeMismatch => "string-contains? expects a string or character, found: {}", other)
+        }
+    }
 }
 
 #[cfg(test)]

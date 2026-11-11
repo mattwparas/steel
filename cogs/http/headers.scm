@@ -30,7 +30,7 @@
   (or (and (>= code 48) (<= code 57))
       (and (>= code 65) (<= code 90))
       (and (>= code 97) (<= code 122))
-      (string-contains? "!#$%&'*+-.^_`|~" (string char))))
+      (string-contains? "!#$%&'*+-.^_`|~" char)))
 
 ;;@doc
 ;; Whether `str` is an http token: letters, digits and `!#$%&'*+-.^_`|~`

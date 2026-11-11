@@ -571,14 +571,16 @@ in a case insensitive fashion.
  > (string-ci>? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
  ```
 ### **string-contains?**
-Searches a string to check if it contains the second argument.
+Searches a string to check if it contains the second argument, which may be a
+string or a single character.
 
-(string-contains? string? string?) -> bool?
+(string-contains? string? (or/c string? char?)) -> bool?
 
 #### Examples
 ```scheme
 (string-contains? "hello" "lo") ;;=> #t
 (string-contains? "hello" "world") ;;=> #f
+(string-contains? "hello" #\l) ;;=> #t
 ```
 ### **string-downcase**
 Creates a new lowercased version of the input string
