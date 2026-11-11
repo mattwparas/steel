@@ -501,7 +501,7 @@ impl<'a> Parser<'a> {
         }
 
         parser.incremental = true;
-        // `read` hands back the datum that was written, so the `@doc` desugar -
+        // read hands back the datum that was written, so the @doc desugar -
         // which can turn one datum into two expressions - has no place here
         parser.collect_doc_comments = false;
         parser.more_to_come = more_to_come;
@@ -511,7 +511,6 @@ impl<'a> Parser<'a> {
         parser
     }
 
-    // `input` must be the previous chunk with more appended - offsets are absolute
     pub fn resume(
         input: &'a str,
         source_id: Option<SourceId>,

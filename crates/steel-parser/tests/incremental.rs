@@ -163,8 +163,6 @@ fn short_datums_resume_too() {
 static DOC_COMMENTED: &str =
     ";;@doc a\n;; b\n(define-syntax m (syntax-rules () ((_) 1)))\n(tail)\n";
 
-// `@doc` cannot go in `programs` - the reader and the compiler are meant to
-// disagree about it, so `check` would call that a mismatch
 fn drain(input: &str, chunk: usize) -> Vec<String> {
     let mut out = Vec::new();
     let mut base = 0;

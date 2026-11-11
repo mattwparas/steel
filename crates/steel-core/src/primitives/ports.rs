@@ -518,7 +518,6 @@ fn line(size: usize, mut result: String) -> SteelVal {
         return eof();
     }
 
-    // r7rs read-line doesn't return the trailing \n
     if result.ends_with('\n') {
         result.pop();
     }
@@ -1048,7 +1047,6 @@ mod would_block_tests {
         }
     }
 
-    // On windows a read deadline comes back as TimedOut, not WouldBlock
     struct RanOutOfTime;
 
     impl Read for RanOutOfTime {

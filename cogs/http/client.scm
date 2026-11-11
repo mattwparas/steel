@@ -85,7 +85,6 @@
   (tcp-stream-set-read-timeout! stream read-timeout)
   (transport (tcp-stream-buffered-reader stream)
              (tcp-stream-writer stream)
-             ;; Shutting down a connection the far end already closed raises.
              (lambda () (with-handler (lambda (err) void) (tcp-shutdown! stream)))))
 
 ;;@doc
@@ -203,8 +202,8 @@
       (and (>= status 100) (< status 200))))
 
 (define (body-mode headers status method)
-  ;; `chunked` has to be the whole list and the last of it, so anything else
-  ;; leaves the sender and this client disagreeing about where the body ends.
+  ;; Anything but exactly chunked leaves the sender and this client disagreeing
+  ;; about where the body ends
   (define encodings (header-tokens headers "Transfer-Encoding"))
   (define declared (content-length headers))
   (cond

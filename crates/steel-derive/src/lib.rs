@@ -757,7 +757,6 @@ fn arity_code_injection(
         .get("arity")
         .expect("native definition requires an arity");
 
-    // The name the caller typed, not the rust one
     let func_name = keyword_map
         .get("name")
         .cloned()

@@ -76,9 +76,6 @@ impl core::fmt::Display for SteelPort {
 const MIN_CHUNK: usize = 8 * 1024;
 const MAX_STREAM_CHUNK: usize = 64 * 1024;
 
-// Parser state left behind by a read that blocked part way through. `pending` is
-// how many bytes were in front of it, and we can only resume on those same bytes
-// with more appended.
 #[derive(Debug)]
 struct SuspendedRead {
     state: ParserState,
@@ -143,8 +140,6 @@ impl<T> Peekable<T> {
         }
     }
 
-    // A seek moves the stream out from under everything we read ahead, the
-    // suspended parse state included.
     fn discard_read_ahead(&mut self) {
         self.buf.clear();
         self.pos = 0;
@@ -164,9 +159,6 @@ impl<T> Peekable<T> {
         self.suspended = state.map(|state| Box::new(SuspendedRead { state, pending }));
     }
 
-    // Replace malformed bytes with U+FFFD, the way a decoding port does. A
-    // sequence that is only cut short is left for the next read unless the
-    // source is done.
     fn sanitize_pending(&mut self, at_eof: bool) {
         let mut at = self.pos;
 
@@ -415,8 +407,6 @@ impl<R: Read> Peekable<R> {
 
         let amt = bytes.len();
 
-        // Everything up to the end of the source, so a sequence cut short here
-        // is cut short for good
         buf.push_str(&String::from_utf8_lossy(&bytes));
         self.consumed_any |= amt > 0;
 
@@ -461,8 +451,6 @@ impl<R: Read> Peekable<R> {
         }
     }
 
-    // A line ends at a newline or at the end of the source, so a sequence cut
-    // short here is cut short for good
     fn take_line(&mut self, amt: usize, buf: &mut String) -> MaybeBlocking<usize> {
         buf.push_str(&String::from_utf8_lossy(&self.pending()[..amt]));
         self.consume(amt);
@@ -505,7 +493,6 @@ impl<R: Read + Seek> Peekable<BufReader<R>> {
             .saturating_sub(ahead))
     }
 
-    // Put the os position back where the program is, so a write lands there
     fn rewind_read_ahead(&mut self) -> io::Result<()> {
         if self.buffered() == 0 {
             return Ok(());
@@ -565,13 +552,12 @@ fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
     MaybeBlocking::Nonblocking(Some((char::REPLACEMENT_CHARACTER, amt)))
 }
 
-// A read that hit a deadline comes back as `WouldBlock` on unix, `TimedOut` on
-// windows. If there's no deadline, `TimedOut` is a real error.
+// A read that hit a deadline comes back as WouldBlock on unix, TimedOut on
+// windows. If there's no deadline, TimedOut is a real error
 fn blocked(err: &io::Error, deadline: bool) -> bool {
     err.kind() == io::ErrorKind::WouldBlock || (deadline && err.kind() == io::ErrorKind::TimedOut)
 }
 
-// `amt` is in/out, and is updated on the error path too
 fn read_full<R: Read>(
     mut reader: R,
     mut buf: &mut [u8],
@@ -605,7 +591,7 @@ pub enum SteelPortRepr {
     FileInput(String, Peekable<BufReader<File>>),
     FileOutput(String, BufWriter<File>),
     // Reads are buffered, writes are not: a read ahead moves the file handle
-    // past where the program is, so a write puts it back first.
+    // past where the program is, so a write puts it back first
     FileInputOutput(String, Peekable<BufReader<File>>),
     StdInput(Peekable<Stdin>),
     StdOutput(Stdout),
@@ -824,7 +810,6 @@ impl SteelPortRepr {
     pub fn flush(&mut self) -> Result<()> {
         match self {
             SteelPortRepr::FileOutput(_, s) => Ok(s.flush()?),
-            // A write on one of these is not buffered
             SteelPortRepr::FileInputOutput(_, _) => Ok(()),
             SteelPortRepr::StdOutput(s) => Ok(s.flush()?),
             SteelPortRepr::StdError(s) => Ok(s.flush()?),
@@ -837,9 +822,6 @@ impl SteelPortRepr {
         }
     }
 
-    // Where the program is in the stream, which is behind the os position by
-    // whatever we read ahead, and in front of it by whatever is still waiting
-    // to be written.
     pub fn position(&mut self) -> Result<u64> {
         match self {
             SteelPortRepr::FileInput(_, br) | SteelPortRepr::FileInputOutput(_, br) => {
@@ -860,8 +842,6 @@ impl SteelPortRepr {
     }
 
     pub fn set_position(&mut self, from: io::SeekFrom) -> Result<u64> {
-        // A relative seek counts from where the program is, not from where the
-        // read ahead left the os position
         let from = match from {
             io::SeekFrom::Current(offset) => {
                 let at = self.position()?;
@@ -886,7 +866,6 @@ impl SteelPortRepr {
 
                 Ok(at)
             }
-            // Seeking a `BufWriter` flushes it first
             SteelPortRepr::FileOutput(_, bw) => Ok(bw.seek(from)?),
             SteelPortRepr::StringInput(s) => {
                 let at = s.inner.seek(from)?;
@@ -908,7 +887,6 @@ impl SteelPortRepr {
                 Ok(bw.get_ref().set_len(length)?)
             }
             SteelPortRepr::FileInputOutput(_, br) => {
-                // What we read ahead may be past the new end of the file
                 br.rewind_read_ahead()?;
 
                 Ok(br.inner.get_ref().set_len(length)?)
@@ -2356,7 +2334,6 @@ mod port_tests {
             TempFile { path }
         }
 
-        // Use the second handle to see where `as_stdio` left the first
         fn open(&self) -> (File, File) {
             let file = File::open(&self.path).unwrap();
             let observer = file.try_clone().unwrap();
@@ -2442,7 +2419,6 @@ mod port_tests {
         writer.write_all(b"(a) remainder").unwrap();
         drop(writer);
 
-        // A socket isn't seekable, so there's nowhere to put bytes already read
         let file = unsafe { File::from_raw_fd(reader.into_raw_fd()) };
         let mut peekable = Peekable::new(BufReader::new(file));
 
@@ -2659,8 +2635,6 @@ mod port_tests {
         let mut buf = [0; 4];
         assert_eq!(ready(port.read_bytes_amt(&mut buf)), 4);
 
-        // The rest of the file is buffered by now, so a position read off the
-        // file handle alone would say 10
         assert_eq!(port.position().unwrap(), 4);
     }
 
@@ -2700,7 +2674,6 @@ mod port_tests {
 
         port.write(b"ab").unwrap();
 
-        // Nothing has reached the file yet
         assert_eq!(port.position().unwrap(), 2);
     }
 
@@ -2847,8 +2820,6 @@ mod port_tests {
         ready(port.read_bytes_amt(&mut buf));
         assert_eq!(&buf, b"0123");
 
-        // The read pulled the whole file into the buffers, so a write without
-        // the rewind would land at the end
         port.write(b"ab").unwrap();
 
         assert_eq!(port.position().unwrap(), 6);
@@ -2889,7 +2860,6 @@ mod port_tests {
         assert_eq!(ready(port.fill_more()), 10);
         port.consume_pending(4);
 
-        // Four bytes in, with the rest of the file read ahead
         assert_eq!(port.set_position(io::SeekFrom::Current(2)).unwrap(), 6);
         assert_eq!(ready(port.read_byte()), Some(b'6'));
     }
@@ -2973,7 +2943,6 @@ mod port_tests {
 
     #[test]
     fn a_sequence_cut_short_at_the_end_substitutes() {
-        // The first two bytes of a three byte character
         let temp = TempFile::new("cut-short", b"ab\xe5\x8d");
         let (file, _) = temp.open();
         let mut port = SteelPortRepr::FileInput(temp.name(), Peekable::new(BufReader::new(file)));

@@ -85,7 +85,6 @@
      (header-set headers
                  "Authorization"
                  (string-append "Basic " (base64-encode (basic-credentials auth))))]
-    ;; Credentials in the url belong in the `Authorization` header.
     [(url-userinfo url)
      (header-set headers
                  "Authorization"
@@ -190,7 +189,6 @@
 (define (response-keep-alive? received)
   (keeping-alive? (response-version received) (response-headers received)))
 
-;; The phrases from RFC 9110. A code that is not listed gets an empty phrase.
 (define *reasons*
   (list (cons 100 "Continue")
         (cons 101 "Switching Protocols")
@@ -253,7 +251,6 @@
             (or (body->bytes body) (bytes))))
 
 (define (strip-cr line)
-  ;; A tcp reader returns the `\r` of a crlf and a string port does not.
   (if (ends-with? line "\r")
       (substring line 0 (- (string-length line) 1))
       line))
@@ -264,7 +261,6 @@
 (define (line-so-far chars)
   (strip-cr (list->string (reverse chars))))
 
-;; `read-line` has no limit, so lines are read a character at a time.
 (define (read-wire-line reader)
   (let loop ([chars '()]
              [length 0])
@@ -297,7 +293,6 @@
     (cond
       [(eof-object? line) (error "http: the connection closed in the middle of the headers")]
       [(equal? line "") (reverse headers)]
-      ;; An obs-fold continuation belongs to the header above it.
       [(and (continuation-line? line) (not (empty? headers)))
        (loop (cons (cons (car (car headers)) (string-append (cdr (car headers)) " " (trim line)))
                    (cdr headers))
@@ -309,8 +304,6 @@
          (loop (cons header headers) (+ lines 1)))])))
 
 (define (content-length headers)
-  ;; One `Content-Length: 11, 11` and two `Content-Length: 11` headers mean the
-  ;; same thing. Values that disagree are an error.
   (define parts
     (apply append
            (map (lambda (value) (map trim (split-many value ",")))
@@ -330,8 +323,6 @@
                  lengths)
        (car lengths))]))
 
-;; `read-bytes` allocates the whole amount up front, so a declared length is
-;; read a chunk at a time.
 (define *read-chunk-bytes* 65536)
 
 (define (read-exactly reader amount)
@@ -356,7 +347,6 @@
       body))
 
 (define (parse-chunk-size line)
-  ;; A chunk size may carry extensions, as in `1f;name=value`.
   (define size (string->number (trim (car (split-many line ";"))) 16))
   (unless (and (int? size) (>= size 0))
     (error "http: not a usable chunk size:" line))
@@ -376,8 +366,6 @@
       [(and limit (> (+ read-so-far size) limit)) 'too-large]
       [(equal? size 0) (cons (apply bytes-append (reverse chunks)) (read-wire-headers reader))]
       [else
-       ;; `let*`, since the chunk has to be read before the crlf that follows
-       ;; it.
        (let* ([chunk (read-exactly reader size)]
               [terminator (read-wire-line reader)])
          (unless (equal? terminator "")

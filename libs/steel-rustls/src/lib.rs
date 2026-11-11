@@ -38,9 +38,9 @@ impl RustlsClientConnection {
         let root_store = RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.into(),
         };
-        // `ClientConfig::builder` panics if both of rustls' `aws-lc-rs` and
-        // `ring` features are on, and anything else in the build can turn on the
-        // other one (`ureq` does). So, name the provider here.
+        // ClientConfig::builder panics if both of rustls' aws-lc-rs and ring
+        // features are on, and anything else in the build can turn on the other
+        // one (ureq does), so name the provider here
         let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
         let mut config = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
@@ -86,8 +86,6 @@ enum RustlsError {
     Argument(String),
 }
 
-// We only get `{:?}` at the ffi boundary, so that's the form a steel program
-// sees
 impl std::fmt::Debug for RustlsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -113,8 +111,6 @@ fn connect(addr: &str) -> Result<RustlsTcpStream, RustlsError> {
         .map_err(RustlsError::Io)
 }
 
-// Put the deadline on the socket so it covers the handshake too. `tls-stream`
-// moves the socket in, so it stays in force.
 fn set_read_timeout(stream: &mut RustlsTcpStream, ms: Option<isize>) -> Result<(), RustlsError> {
     stream
         .0

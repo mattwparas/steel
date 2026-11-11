@@ -33,7 +33,6 @@
 (bytevector-copy! copied 0 (bytes 0 1 2 3 4 5) 3 5)
 (assert-equal! copied (bytes 3 4 20 3 4))
 
-;; The same bytevector, with the ranges overlapping
 (define overlapping (bytes 0 1 2 3 4))
 (bytevector-copy! overlapping 1 overlapping 0 4)
 (assert-equal! overlapping (bytes 0 0 1 2 3))
@@ -48,7 +47,6 @@
 (assert-equal! 'raised
                (with-handler (lambda (err) 'raised) (bytevector-copy! (bytes 0 1) 0 (bytes 0 1) 0 3)))
 
-;; Racket passes the stand-in for malformed bytes where r7rs passes `start`
 (define malformed (bytes 97 255 98))
 (define replacement (string (integer->char 65533)))
 
@@ -61,7 +59,6 @@
 (assert-equal! 'raised (with-handler (lambda (err) 'raised) (bytes->string/utf-8 malformed)))
 (assert-equal! 'raised (with-handler (lambda (err) 'raised) (bytes->string/utf-8 malformed #f)))
 
-;; A range past the end is an error, not a crash
 (assert-equal! 'raised (with-handler (lambda (err) 'raised) (bytes->string/utf8 (bytes 97 98) 0 5)))
 (assert-equal! 'raised (with-handler (lambda (err) 'raised) (bytes->string/utf8 (bytes 97 98) 9)))
 (assert-equal! 'raised (with-handler (lambda (err) 'raised) (bytes->string/utf8 (bytes 97 98) 2 1)))

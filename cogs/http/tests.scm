@@ -49,9 +49,8 @@
     (define client (tcp-connect (tcp-listener-local-addr listener)))
     (define server (tcp-accept listener))
     (display reply (tcp-stream-writer server))
-    ;; The close thunk holds the only reference to the far end; a collected
-    ;; socket would close on the client mid-request. Windows answers that
-    ;; close with a reset, which drops the reply the client had not read yet.
+    ;; The close thunk holds the only reference to the far end; a collected socket
+    ;; closes on the client, and windows answers that close with a reset
     (make-transport (reader client)
                     (tcp-stream-writer client)
                     #:close (lambda ()
@@ -600,8 +599,6 @@
                (let* ([listener (tcp-listen "127.0.0.1:0")]
                       [target (string-append "http://" (tcp-listener-local-addr listener) "/a")]
                       [sent (tcp-connector (parse-url target) #:read-timeout 50)]
-                      ;; The far end is held open and sends nothing, so the
-                      ;; read hits its deadline.
                       [far-end (tcp-accept listener)]
                       [outcome (with-handler (lambda (err)
                                                (string-contains? (error-object-message err)
@@ -686,8 +683,6 @@
                 (reply-to (list "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n")
                           (lambda () (http-get "http://x/"))))))
 
-;; Serves `text` as if it had arrived on a connection, and returns
-;; (requests-served . what-went-back).
 (define (over-ports text handler #:keep-alive [keep-alive #t] #:limit [limit #f])
   (define writer (open-output-string))
   (define served
@@ -701,7 +696,6 @@
 (define (answer text handler)
   (cdr (over-ports text handler)))
 
-;; The status line of the response.
 (define (answer-status text handler)
   (car (split-many (answer text handler) "\r\n")))
 
@@ -710,9 +704,6 @@
 
 (define *get* "GET /a HTTP/1.1\r\nHost: x\r\n\r\n")
 
-;; One thread, no canned replies: the client writes, the server answers, the
-;; client reads it back. `#:limit 1` stops the server waiting for a second
-;; request.
 (define (round-trip request handler)
   (define server (http-listen "127.0.0.1:0"))
   (define connection (http-connect (string-append "http://" (server-address server) "/")))
@@ -1001,7 +992,6 @@
                  (list (car out)
                        (string-contains? back "hello /one")
                        (string-contains? back "hello /two")
-                       ;; The second answer ends the stream.
                        (substring back (- (string-length back) 10) (string-length back)))))
  (check-equal?
   "a request that asks to close the connection is the last one on it"

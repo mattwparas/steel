@@ -51,8 +51,8 @@
            (make-url "" #:path target)))]))
 
 (define (request-body-mode headers)
-  ;; `chunked` has to be the whole list and the last of it, so anything else
-  ;; leaves the sender and this server disagreeing about where the body ends.
+  ;; Anything but exactly chunked leaves the sender and this server disagreeing
+  ;; about where the body ends
   (define encodings (header-tokens headers "Transfer-Encoding"))
   (define declared (content-length headers))
   (cond
@@ -67,13 +67,9 @@
     [(and declared (> declared *max-body-bytes*))
      (problem-report 413
                      (string-append "a request declared a body of " (int->string declared) " bytes"))]
-    ;; No framing means no body; reading until close would leave nothing to
-    ;; answer on.
     [declared declared]
     [else 'none]))
 
-;; Anything the shared reader raises (a bad header line, a bad chunk size, a
-;; body cut short) becomes a 400.
 (define (or-bad-request thunk)
   (with-handler (lambda (err) (problem-report 400 (trim (to-string (error-object-message err)))))
                 (thunk)))
@@ -82,8 +78,6 @@
   (if (member "100-continue" (header-tokens headers "Expect")) #t #f))
 
 (define (read-request-line reader)
-  ;; An empty line before the request line is a stray crlf from the previous
-  ;; request.
   (let loop ([skipped 0])
     (define line (read-wire-line reader))
     (cond
@@ -91,8 +85,6 @@
       [(and (equal? line "") (< skipped 2)) (loop (+ skipped 1))]
       [else line])))
 
-;; Returns the eof object when the connection closed between requests, and
-;; otherwise a `request?` or a `problem-report?`.
 (define (read-request reader writer)
   (define line (read-request-line reader))
   (cond
@@ -113,8 +105,6 @@
     [else
      (let ([hosts (header-ref* headers "Host")])
        (cond
-         ;; Two `Host` headers would leave the next hop to decide which one
-         ;; counts.
          [(> (length hosts) 1) (problem-report 400 "a request carried more than one Host header")]
          [(and (equal? version "HTTP/1.1") (empty? hosts))
           (problem-report 400 "an HTTP/1.1 request without a Host header")]
@@ -178,7 +168,6 @@
      "http: this server sends a body with a Content-Length, not chunked - take Transfer-Encoding off the response"))
   (if (bodyless-status? (response-status received))
       (header-remove headers "Content-Length")
-      ;; A HEAD response carries the body's length but not the body.
       (header-default headers "Content-Length" (int->string (bytes-length body)))))
 
 (define (response->wire received keep-alive method)
@@ -209,7 +198,6 @@
 (define (answer-to handler sent)
   (define answered
     (with-handler (lambda (err)
-                    ;; What the handler raised is not sent to the client.
                     (make-response 500))
                   (handler sent)))
   (if (framable? answered (request-method sent))
@@ -256,8 +244,6 @@
          (cond
            [(eof-object? outcome) served]
            [(problem-report? outcome)
-            ;; An unreadable request leaves the stream at an unknown point, so
-            ;; the connection ends after this answer.
             (if (write-answer writer (problem-response outcome) #f "GET")
                 (+ served 1)
                 served)]
@@ -287,7 +273,6 @@
    (lambda () void)
    (lambda ()
      (http-serve-connection (car ports) (cdr ports) handler #:keep-alive keep-alive #:limit limit))
-   ;; A client that has already closed makes this raise.
    (lambda () (with-handler (lambda (err) void) (tcp-shutdown! stream)))))
 
 ;;@doc

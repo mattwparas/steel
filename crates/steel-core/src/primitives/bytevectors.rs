@@ -525,8 +525,6 @@ pub fn bytes_to_string(
 ) -> Result<SteelVal> {
     let args = rest.collect::<Result<Vec<_>>>()?;
 
-    // Racket spells the stand-in for malformed bytes in this position, where
-    // r7rs spells `start`
     let given = match args.first().copied() {
         Some(SteelVal::CharV(c)) => Some(Some(*c)),
         Some(SteelVal::BoolV(false)) => Some(None),

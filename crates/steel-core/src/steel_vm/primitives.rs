@@ -2045,8 +2045,6 @@ fn attempt_parse(
     let outcome = {
         let pending = port.pending();
 
-        // Whatever is left malformed is a sequence cut short, which the next
-        // read may complete
         let text = match core::str::from_utf8(pending) {
             Ok(text) => text,
             Err(err) => core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap(),
@@ -2980,7 +2978,6 @@ mod read_datum_tests {
         }
     }
 
-    // Peek at the saved state by taking it and putting it straight back
     fn is_suspended(port: &SteelPort) -> bool {
         let kept = port.port.write().take_parse_state();
         let there = kept.is_some();
@@ -3058,7 +3055,6 @@ mod read_datum_tests {
 
     #[test]
     fn a_sequence_cut_short_waits_for_the_rest() {
-        // One three byte character, a byte at a time
         let port = byte_stream(&[b"\xe5", b"\x8d", b"\x83", b" "], false);
 
         assert_eq!(datums(&port), vec![SteelVal::SymbolV("\u{5343}".into())]);
