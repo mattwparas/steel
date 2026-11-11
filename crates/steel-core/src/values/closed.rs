@@ -84,6 +84,9 @@ pub struct GlobalSlotRecycler {
     slots: HashSet<usize>,
 
     queue: Vec<SteelVal>,
+
+    // Slots taken out of `slots` whose values have yet to be visited.
+    reached: Vec<usize>,
 }
 
 impl GlobalSlotRecycler {
@@ -127,6 +130,12 @@ impl GlobalSlotRecycler {
 
         // Actually walk the tree, looking for unreachable stuff
         self.visit();
+        while let Some(slot) = self.reached.pop() {
+            if let Some(root) = roots.get(slot) {
+                self.push_back(root.clone());
+                self.visit();
+            }
+        }
 
         heap.memory_free_list.recount();
         heap.vector_free_list.recount();
@@ -272,7 +281,10 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 | OpCode::CALLGLOBALTAIL
                 | OpCode::CALLGLOBALNOARITY
                 | OpCode::CALLGLOBALTAILNOARITY => {
-                    self.slots.remove(&(instruction.payload_size.to_usize()));
+                    let slot = instruction.payload_size.to_usize();
+                    if self.slots.remove(&slot) {
+                        self.reached.push(slot);
+                    }
                 }
                 _ => {}
             }
