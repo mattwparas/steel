@@ -149,7 +149,22 @@
  (check-equal? "a reference is relative even with a url in its query"
                "http://a/login?next=https://b/x"
                (url->string (url-join "http://a/b/c" "/login?next=https://b/x")))
- (check-equal? "a non ascii safe character is encoded anyway" "%C3%A9" (url-encode "é" #:safe "é")))
+ (check-equal? "a non ascii safe character is encoded anyway" "%C3%A9" (url-encode "é" #:safe "é"))
+ (check-equal? "a plus is a plus when it is not form encoded" "a+b c" (url-decode "a+b%20c" #:form #f))
+ (check-equal? "an empty reference drops the fragment it resolved against"
+               "http://a/b?x=1"
+               (url->string (url-join "http://a/b?x=1#top" "")))
+ (check-equal? "a colon in front of a port is a port, not a scheme"
+               (list "localhost" 8080)
+               (let ([url (parse-url "localhost:8080/x")])
+                 (list (url-host url) (url-port url))))
+ (check-err? "a reference with a scheme this cannot hold is refused"
+             (url-join "http://a/b" "mailto:someone@example.com")
+             'raises)
+ (check-err? "a url with a scheme this cannot hold is refused"
+             (parse-url "mailto:someone@example.com")
+             'raises)
+ (check-err? "a host with a colon in it outside brackets is refused" (parse-url "http://a:1:2/") 'raises))
 
 (test-module
  "http-headers-tests"
@@ -332,6 +347,14 @@
              (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n")
                        (lambda () (http-get "http://x/")))
              'raises)
+ (check-err? "a chunk size with a sign on it is refused"
+             (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n+5\r\nhello\r\n0\r\n\r\n")
+                       (lambda () (http-get "http://x/")))
+             'raises)
+ (check-err? "a content length with a sign on it is refused"
+             (reply-to (list "HTTP/1.1 200 OK\r\nContent-Length: +2\r\n\r\nab")
+                       (lambda () (http-get "http://x/")))
+             'raises)
  (check-err? "a header line with no end to it is refused"
              (reply-to (list (string-append "HTTP/1.1 200 OK\r\nX: "
                                             (apply string-append
@@ -450,6 +473,13 @@
                                          0)])
                  (and (string-contains? text "Authorization: Basic dXNlcjpwYXNzd29yZA==\r\n")
                       (equal? (request-line text) "GET /p HTTP/1.1"))))
+ (check-equal? "a plus in url credentials is a plus, not a space"
+               #t
+               (string-contains? (request-text (requests-of (list *ok*)
+                                                            (lambda ()
+                                                              (http-get "http://user:pa+ss@x/p")))
+                                               0)
+                                 "Authorization: Basic dXNlcjpwYStzcw==\r\n"))
  (check-equal? "a request asks for no encoding it cannot undo"
                #t
                (string-contains?

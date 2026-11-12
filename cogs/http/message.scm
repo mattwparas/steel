@@ -88,7 +88,8 @@
     [(url-userinfo url)
      (header-set headers
                  "Authorization"
-                 (string-append "Basic " (base64-encode (url-decode (url-userinfo url)))))]
+                 (string-append "Basic "
+                                (base64-encode (url-decode (url-userinfo url) #:form #f))))]
     [else headers]))
 
 ;;@doc
@@ -303,6 +304,24 @@
            (error "http: not a header line:" line))
          (loop (cons header headers) (+ lines 1)))])))
 
+;; string-ref walks the string from the start for every index, so this walks the
+;; characters once instead. Taking one stops at the first that fails
+(define (every-char? str ok?)
+  (equal? 0
+          (transduce str
+                     (compose (filtering (lambda (char) (not (ok? char)))) (taking 1))
+                     (into-count))))
+
+(define (digit-char? char)
+  (define code (char->integer char))
+  (and (>= code 48) (<= code 57)))
+
+(define (hex-digit-char? char)
+  (define code (char->integer char))
+  (or (digit-char? char)
+      (and (>= code 65) (<= code 70))
+      (and (>= code 97) (<= code 102))))
+
 (define (content-length headers)
   (define parts
     (apply append
@@ -311,7 +330,9 @@
   (cond
     [(empty? parts) #f]
     [else
-     (let ([lengths (map (lambda (part) (string->number part)) parts)])
+     (let ([lengths (map (lambda (part)
+                           (and (every-char? part digit-char?) (string->number part)))
+                         parts)])
        (for-each (lambda (each)
                    (unless (and (int? each) (>= each 0))
                      (error "http: not a usable Content-Length:"
@@ -347,7 +368,8 @@
       body))
 
 (define (parse-chunk-size line)
-  (define size (string->number (trim (car (split-many line ";"))) 16))
+  (define digits (trim (car (split-many line ";"))))
+  (define size (and (every-char? digits hex-digit-char?) (string->number digits 16)))
   (unless (and (int? size) (>= size 0))
     (error "http: not a usable chunk size:" line))
   size)

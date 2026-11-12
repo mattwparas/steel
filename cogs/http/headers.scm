@@ -34,10 +34,16 @@
 
 ;;@doc
 ;; Whether `str` is an http token: letters, digits and `!#$%&'*+-.^_`|~`
+;; string-ref walks the string from the start for every index, so this walks the
+;; characters once instead. Taking one stops at the first that fails
+(define (every-char? str ok?)
+  (equal? 0
+          (transduce str
+                     (compose (filtering (lambda (char) (not (ok? char)))) (taking 1))
+                     (into-count))))
+
 (define (token? str)
-  (and (> (string-length str) 0)
-       (let loop ([at 0])
-         (or (>= at (string-length str)) (and (token-char? (string-ref str at)) (loop (+ at 1)))))))
+  (and (not (equal? str "")) (every-char? str token-char?)))
 
 (define (check-header name value)
   (unless (token? name)

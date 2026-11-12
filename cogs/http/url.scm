@@ -84,6 +84,14 @@
 (define (ascii-letter? char)
   (or (char-between? char #\a #\z) (char-between? char #\A #\Z)))
 
+;; string-ref walks the string from the start for every index, so this walks the
+;; characters once instead. Taking one stops at the first that fails
+(define (every-char? str ok?)
+  (equal? 0
+          (transduce str
+                     (compose (filtering (lambda (char) (not (ok? char)))) (taking 1))
+                     (into-count))))
+
 (define (index-of-any str chars)
   (define len (string-length str))
   (let loop ([at 0])
@@ -102,22 +110,36 @@
 (define (drop-prefix str at)
   (substring str at (string-length str)))
 
+(define (scheme-char? char)
+  (or (ascii-letter? char)
+      (char-digit? char)
+      (char=? char #\+)
+      (char=? char #\-)
+      (char=? char #\.)))
+
 (define (scheme-name? str)
-  (and (> (string-length str) 0)
+  (and (not (equal? str ""))
        (ascii-letter? (string-ref str 0))
-       (let loop ([at 1])
-         (or (>= at (string-length str))
-             (let ([char (string-ref str at)])
-               (and (or (ascii-letter? char)
-                        (char-digit? char)
-                        (char=? char #\+)
-                        (char=? char #\-)
-                        (char=? char #\.))
-                    (loop (+ at 1))))))))
+       (every-char? (drop-prefix str 1) scheme-char?)))
 
 (define (leading-scheme str)
   (define split (split-once str "://"))
   (and (list? split) (scheme-name? (car split)) (string-downcase (car split))))
+
+(define (all-digits? str)
+  (and (not (equal? str "")) (every-char? str char-digit?)))
+
+;; A scheme that is not followed by `//`, like `mailto:`. A colon followed by
+;; only digits is a port, so `localhost:8080` is a host and not a scheme.
+(define (opaque-scheme str)
+  (define cut (index-of-any str (list #\: #\/ #\? #\#)))
+  (and cut
+       (char=? (string-ref str cut) #\:)
+       (scheme-name? (substring str 0 cut))
+       (let* ([rest (drop-prefix str (+ cut 1))]
+              [end (or (index-of-any rest (list #\/ #\? #\#)) (string-length rest))])
+         (not (all-digits? (substring rest 0 end))))
+       (substring str 0 cut)))
 
 (define (split-host-and-port authority)
   (cond
@@ -130,7 +152,10 @@
     [else
      (let ([colon (last-index-of authority #\:)])
        (if colon
-           (cons (substring authority 0 colon) (port-after (drop-prefix authority colon) authority))
+           (let ([host (substring authority 0 colon)])
+             (when (string-contains? host #\:)
+               (error "url: an unbracketed host cannot contain a colon:" authority))
+             (cons host (port-after (drop-prefix authority colon) authority)))
            (cons authority #f)))]))
 
 (define (port-after rest authority)
@@ -153,6 +178,10 @@
 
 (define (parse-url-string str)
   (define scheme (leading-scheme str))
+  (unless scheme
+    (let ([opaque (opaque-scheme str)])
+      (when opaque
+        (error "url: this understands scheme://host urls, not the scheme:" opaque))))
   (define rest
     (if scheme
         (drop-prefix str (+ (string-length scheme) 3))
@@ -272,7 +301,8 @@
     [(url? reference) reference]
     [(leading-scheme reference) (parse-url reference)]
     [(starts-with? reference "//") (parse-url (string-append (url-scheme from) ":" reference))]
-    [(equal? reference "") from]
+    [(opaque-scheme reference)
+     (error "url: a reference with a scheme has to be a scheme://host url:" reference)]
     [(starts-with? reference "#")
      (make-url (url-host from)
                #:scheme (url-scheme from)
@@ -342,31 +372,35 @@
     [(char-between? char #\A #\F) (- (char->integer char) 55)]
     [else #f]))
 
-(define (url-decode str)
-  (define len (string-length str))
+;;@doc
+;; Decodes percent escapes. With `#:form`, a `+` decodes as a space, the way a
+;; form encoded query writes one.
+;;
+;; (url-decode str [#:form form]) -> string?
+;;
+;; * str : string?
+;; * form : bool? = #true
+(define (url-decode str #:form [form #t])
   (define out (bytes))
   (define (push-char char)
     (for-each (lambda (byte) (bytes-push! out byte)) (bytes->list (string->bytes (string char)))))
-  (let loop ([at 0])
+  (let loop ([rest (string->list str)])
     (cond
-      [(>= at len) (bytes->string/utf8 out)]
+      [(empty? rest) (bytes->string/utf8 out)]
+      [(and form (char=? (car rest) #\+))
+       (bytes-push! out 32)
+       (loop (cdr rest))]
       [else
-       (let ([char (string-ref str at)])
+       (let* ([after (cdr rest)]
+              [high (and (char=? (car rest) #\%) (pair? after) (hex-digit-value (car after)))]
+              [low (and high (pair? (cdr after)) (hex-digit-value (car (cdr after))))])
          (cond
-           [(char=? char #\+)
-            (bytes-push! out 32)
-            (loop (+ at 1))]
-           [(and (char=? char #\%)
-                 (<= (+ at 3) len)
-                 (hex-digit-value (string-ref str (+ at 1)))
-                 (hex-digit-value (string-ref str (+ at 2))))
-            (bytes-push! out
-                         (+ (* 16 (hex-digit-value (string-ref str (+ at 1))))
-                            (hex-digit-value (string-ref str (+ at 2)))))
-            (loop (+ at 3))]
+           [low
+            (bytes-push! out (+ (* 16 high) low))
+            (loop (cdr (cdr after)))]
            [else
-            (push-char char)
-            (loop (+ at 1))]))])))
+            (push-char (car rest))
+            (loop after)]))])))
 
 (define (query-part->string value)
   (cond
