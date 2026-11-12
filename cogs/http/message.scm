@@ -1,3 +1,4 @@
+(require "chars.scm")
 (require "url.scm")
 (require "headers.scm")
 (require "base64.scm")
@@ -303,14 +304,6 @@
          (unless header
            (error "http: not a header line:" line))
          (loop (cons header headers) (+ lines 1)))])))
-
-;; string-ref walks the string from the start for every index, so this walks the
-;; characters once instead. Taking one stops at the first that fails
-(define (every-char? str ok?)
-  (equal? 0
-          (transduce str
-                     (compose (filtering (lambda (char) (not (ok? char)))) (taking 1))
-                     (into-count))))
 
 (define (digit-char? char)
   (define code (char->integer char))

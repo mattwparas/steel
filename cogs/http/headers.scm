@@ -1,3 +1,5 @@
+(require "chars.scm")
+
 (provide header-name=?
          token?
          normalize-headers
@@ -34,14 +36,6 @@
 
 ;;@doc
 ;; Whether `str` is an http token: letters, digits and `!#$%&'*+-.^_`|~`
-;; string-ref walks the string from the start for every index, so this walks the
-;; characters once instead. Taking one stops at the first that fails
-(define (every-char? str ok?)
-  (equal? 0
-          (transduce str
-                     (compose (filtering (lambda (char) (not (ok? char)))) (taking 1))
-                     (into-count))))
-
 (define (token? str)
   (and (not (equal? str "")) (every-char? str token-char?)))
 

@@ -1,3 +1,5 @@
+(require "chars.scm")
+
 (provide url?
          url-scheme
          url-userinfo
@@ -83,14 +85,6 @@
 
 (define (ascii-letter? char)
   (or (char-between? char #\a #\z) (char-between? char #\A #\Z)))
-
-;; string-ref walks the string from the start for every index, so this walks the
-;; characters once instead. Taking one stops at the first that fails
-(define (every-char? str ok?)
-  (equal? 0
-          (transduce str
-                     (compose (filtering (lambda (char) (not (ok? char)))) (taking 1))
-                     (into-count))))
 
 (define (index-of-any str chars)
   (define len (string-length str))
