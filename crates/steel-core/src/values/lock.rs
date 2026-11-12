@@ -1,7 +1,7 @@
+use core::cell::UnsafeCell;
+use core::marker::PhantomData;
 use core::mem::offset_of;
-use std::cell::UnsafeCell;
-use std::marker::PhantomData;
-use std::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 // How many failed acquires before we yield to the scheduler instead of spinning.
 // Spinning only helps while the holder is running on another core. If it has been
@@ -49,50 +49,35 @@ impl<T> SpinLock<T> {
         self.lock()
     }
 
-    // Same as `write`, since this is a mutex. Callers that only read can still
-    // say so, which keeps the bytevector primitives reading like other locks.
     pub fn read(&self) -> SpinGuard<'_, T> {
         self.lock()
     }
 
-    // Reads the payload without taking the lock. The caller has to know nothing
-    // else can touch it, whether another thread holding the lock or a gc pass
-    // reaching the same slot.
     pub unsafe fn get_value(&self) -> &T {
         unsafe { &*self.data.get() }
     }
 
-    // Writes the payload without taking the lock, under the same condition.
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn get_value_mut(&self) -> &mut T {
         unsafe { &mut *self.data.get() }
     }
 
-    // The lock's count. It is odd while the lock is held, and every hold
-    // leaves it different. A reader that sees the same even count before and
-    // after it copies something out of the payload knows no writer was in
-    // between.
     #[inline]
     pub fn sequence(&self) -> u32 {
         self.locked.load(Ordering::Acquire)
     }
 
-    // The count after a read of the payload. The fence orders the read
-    // before this load where loads can be reordered.
     #[inline]
     pub fn sequence_after_read(&self) -> u32 {
         core::sync::atomic::fence(Ordering::Acquire);
         self.locked.load(Ordering::Relaxed)
     }
 
-    // Where the payload is, for a read checked against `sequence`.
     #[inline]
     pub fn data_ptr(&self) -> *const T {
         self.data.get()
     }
 
-    // Not reentrant. Taking this twice on one thread spins forever, so don't keep
-    // a guard alive across a call that might reach the same lock.
     pub fn lock(&self) -> SpinGuard<'_, T> {
         let mut spins: u32 = 0;
 
@@ -141,9 +126,6 @@ impl<T> SpinLock<T> {
 #[must_use = "the lock is released as soon as the guard drops"]
 pub struct SpinGuard<'a, T> {
     lock: &'a SpinLock<T>,
-    // Opts out of the auto derived Send/Sync so only the impls below apply. The
-    // derived ones would make the guard Sync whenever T is Send, and since Deref
-    // hands out a &T that would let two threads share a payload that isn't Sync.
     _marker: PhantomData<*const ()>,
 }
 
@@ -206,9 +188,6 @@ mod tests {
     fn guard_auto_traits_follow_the_payload() {
         assert_sync::<SpinGuard<'static, i32>>();
         assert_send::<SpinGuard<'static, i32>>();
-
-        // Checking that SpinGuard<Cell<i32>> is not Sync would need a compile
-        // fail harness, which we don't have here.
     }
 
     #[test]

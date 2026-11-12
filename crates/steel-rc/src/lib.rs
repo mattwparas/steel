@@ -1,16 +1,20 @@
-use std::alloc::Layout;
-use std::any::Any;
-use std::borrow::Borrow;
-use std::convert::Infallible;
-use std::marker::PhantomData;
-use std::mem::{ManuallyDrop, MaybeUninit};
-use std::ops::Deref;
-use std::pin::Pin;
-use std::ptr::{drop_in_place, NonNull};
-use std::sync::atomic::AtomicU32;
+use core::alloc::Layout;
+use core::any::Any;
+use core::borrow::Borrow;
+use core::convert::Infallible;
+
+use core::marker::PhantomData;
+use core::mem::{ManuallyDrop, MaybeUninit};
+use core::ops::Deref;
+use core::pin::Pin;
+use core::ptr::{drop_in_place, NonNull};
+use core::sync::atomic::AtomicU32;
+
+// TODO: Figure out how to make this no std
 use std::sync::LazyLock;
 use std::thread::JoinHandle;
-use std::{cell::Cell, sync::atomic::Ordering};
+
+use core::{cell::Cell, sync::atomic::Ordering};
 
 use core::convert::TryInto;
 use core::num::{NonZeroU32, NonZeroUsize};

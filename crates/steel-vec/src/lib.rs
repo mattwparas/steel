@@ -1,8 +1,12 @@
+#![cfg_attr(not(test), no_std)]
+
+use core::ops::{Deref, DerefMut, Range, RangeBounds};
+use core::ptr::{self, NonNull};
 use core::{fmt, slice};
-use std::alloc::{self, Layout};
-use std::ops::{Deref, DerefMut, Range, RangeBounds};
-use std::ptr::{self, NonNull};
-use std::{mem, ops};
+use core::{mem, ops};
+
+extern crate alloc;
+use alloc::alloc::{alloc as allocate, dealloc, handle_alloc_error, realloc, Layout};
 
 use crate::drain::Drain;
 
@@ -40,12 +44,12 @@ impl<T> RawVec<T> {
 
         let new_layout = Layout::array::<T>(capacity).expect("Allocation too large");
 
-        let new_ptr = unsafe { alloc::alloc(new_layout) };
+        let new_ptr = unsafe { allocate(new_layout) };
 
         // If allocation fails, `new_ptr` will be null, in which case we abort.
         let ptr = match NonNull::new(new_ptr as *mut T) {
             Some(p) => p,
-            None => alloc::handle_alloc_error(new_layout),
+            None => handle_alloc_error(new_layout),
         };
 
         Self { ptr, cap: capacity }
@@ -68,16 +72,16 @@ impl<T> RawVec<T> {
         let new_layout = Layout::array::<T>(new_cap).expect("Allocation too large");
 
         let new_ptr = if self.cap == 0 {
-            unsafe { alloc::alloc(new_layout) }
+            unsafe { allocate(new_layout) }
         } else {
             let old_layout = Layout::array::<T>(self.cap).unwrap();
             let old_ptr = self.ptr.as_ptr() as *mut u8;
-            unsafe { alloc::realloc(old_ptr, old_layout, new_layout.size()) }
+            unsafe { realloc(old_ptr, old_layout, new_layout.size()) }
         };
 
         self.ptr = match NonNull::new(new_ptr as *mut T) {
             Some(p) => p,
-            None => alloc::handle_alloc_error(new_layout),
+            None => handle_alloc_error(new_layout),
         };
         self.cap = new_cap;
     }
@@ -92,7 +96,7 @@ impl<T> RawVec<T> {
 
         // Drop skips cap == 0, so release the block instead of realloc to zero
         if len == 0 {
-            unsafe { alloc::dealloc(self.ptr.as_ptr() as *mut u8, old_layout) };
+            unsafe { dealloc(self.ptr.as_ptr() as *mut u8, old_layout) };
             self.ptr = NonNull::dangling();
             self.cap = 0;
             return;
@@ -100,11 +104,11 @@ impl<T> RawVec<T> {
 
         let new_layout = Layout::array::<T>(len).expect("Allocation too large");
         let new_ptr =
-            unsafe { alloc::realloc(self.ptr.as_ptr() as *mut u8, old_layout, new_layout.size()) };
+            unsafe { realloc(self.ptr.as_ptr() as *mut u8, old_layout, new_layout.size()) };
 
         self.ptr = match NonNull::new(new_ptr as *mut T) {
             Some(p) => p,
-            None => alloc::handle_alloc_error(new_layout),
+            None => handle_alloc_error(new_layout),
         };
         self.cap = len;
     }
@@ -128,17 +132,17 @@ impl<T> RawVec<T> {
         let new_layout = new_layout.expect("Allocation too large");
 
         let new_ptr = if self.cap == 0 {
-            unsafe { alloc::alloc(new_layout) }
+            unsafe { allocate(new_layout) }
         } else {
             let old_layout = Layout::array::<T>(self.cap).unwrap();
             let old_ptr = self.ptr.as_ptr() as *mut u8;
-            unsafe { alloc::realloc(old_ptr, old_layout, new_layout.size()) }
+            unsafe { realloc(old_ptr, old_layout, new_layout.size()) }
         };
 
         // If allocation fails, `new_ptr` will be null, in which case we abort.
         self.ptr = match NonNull::new(new_ptr as *mut T) {
             Some(p) => p,
-            None => alloc::handle_alloc_error(new_layout),
+            None => handle_alloc_error(new_layout),
         };
         self.cap = new_cap;
     }
@@ -150,7 +154,7 @@ impl<T> Drop for RawVec<T> {
 
         if self.cap != 0 && elem_size != 0 {
             unsafe {
-                alloc::dealloc(
+                dealloc(
                     self.ptr.as_ptr() as *mut u8,
                     Layout::array::<T>(self.cap).unwrap(),
                 );
@@ -204,15 +208,15 @@ impl<T> Vec<T> {
     }
 
     pub const fn buf_offset() -> usize {
-        std::mem::offset_of!(Vec<T>, buf)
+        core::mem::offset_of!(Vec<T>, buf)
     }
 
     pub const fn len_offset() -> usize {
-        std::mem::offset_of!(Vec<T>, len)
+        core::mem::offset_of!(Vec<T>, len)
     }
 
     pub const fn capacity_offset() -> usize {
-        std::mem::offset_of!(RawVec<T>, cap) + Self::buf_offset()
+        core::mem::offset_of!(RawVec<T>, cap) + Self::buf_offset()
     }
 
     pub fn cap(&self) -> usize {
@@ -556,13 +560,13 @@ impl<T> Drop for Vec<T> {
 impl<T> Deref for Vec<T> {
     type Target = [T];
     fn deref(&self) -> &[T] {
-        unsafe { std::slice::from_raw_parts(self.ptr(), self.len) }
+        unsafe { core::slice::from_raw_parts(self.ptr(), self.len) }
     }
 }
 
 impl<T> DerefMut for Vec<T> {
     fn deref_mut(&mut self) -> &mut [T] {
-        unsafe { std::slice::from_raw_parts_mut(self.ptr(), self.len) }
+        unsafe { core::slice::from_raw_parts_mut(self.ptr(), self.len) }
     }
 }
 
@@ -580,7 +584,7 @@ impl<T> IntoIterator for Vec<T> {
 
 impl<'a, T> IntoIterator for &'a Vec<T> {
     type Item = &'a T;
-    type IntoIter = std::slice::Iter<'a, T>;
+    type IntoIter = core::slice::Iter<'a, T>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
