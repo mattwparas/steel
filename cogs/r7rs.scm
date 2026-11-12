@@ -95,54 +95,54 @@
 (check-equal? "bytevector-u8-ref, 1" 1 (bytevector-u8-ref (bytevector 0 1 2) 1))
 (check-equal? "bytevector-u8-ref, 2" 2 (bytevector-u8-ref (bytevector 0 1 2) 2))
 
-(skip-compile (check-equal? "TODO"
-                            #u8(0 255 2)
-                            (let ([bv (bytevector 0 1 2)])
-                              (bytevector-u8-set! bv 1 255)
-                              bv)))
+(check-equal? "bytevector-u8-set!"
+              #u8(0 255 2)
+              (let ([bv (bytevector 0 1 2)])
+                (bytevector-u8-set! bv 1 255)
+                bv))
 
 (check-equal? "bytevector-copy, empty" #u8() (bytevector-copy #u8()))
 (check-equal? "bytevector-copy" #u8(0 1 2) (bytevector-copy #u8(0 1 2)))
 (check-equal? "bytevector-copy, with start" #u8(1 2) (bytevector-copy #u8(0 1 2) 1))
 (check-equal? "bytevector-copy, with start and end" #u8(1) (bytevector-copy #u8(0 1 2) 1 2))
 
-(skip-compile (check-equal? "TODO"
-                            #u8(1 6 7 4 5)
-                            (let ([bv (bytevector 1 2 3 4 5)])
-                              (bytevector-copy! bv 1 #u8(6 7 8 9 10) 0 2)
-                              bv)))
-(skip-compile (check-equal? "TODO"
-                            #u8(6 7 8 9 10)
-                            (let ([bv (bytevector 1 2 3 4 5)])
-                              (bytevector-copy! bv 0 #u8(6 7 8 9 10))
-                              bv)))
-(skip-compile (check-equal? "TODO"
-                            #u8(8 9 10 4 5)
-                            (let ([bv (bytevector 1 2 3 4 5)])
-                              (bytevector-copy! bv 0 #u8(6 7 8 9 10) 2)
-                              bv)))
-(skip-compile (check-equal? "TODO"
-                            #u8(1 2 6 7 8)
-                            (let ([bv (bytevector 1 2 3 4 5)])
-                              (bytevector-copy! bv 2 #u8(6 7 8 9 10) 0 3)
-                              bv)))
-(skip-compile (check-equal? "TODO"
-                            #u8(1 2 8 4 5)
-                            (let ([bv (bytevector 1 2 3 4 5)])
-                              (bytevector-copy! bv 2 #u8(6 7 8 9 10) 2 3)
-                              bv)))
+(check-equal? "bytevector-copy!, with start and end"
+              #u8(1 6 7 4 5)
+              (let ([bv (bytevector 1 2 3 4 5)])
+                (bytevector-copy! bv 1 #u8(6 7 8 9 10) 0 2)
+                bv))
+(check-equal? "bytevector-copy!"
+              #u8(6 7 8 9 10)
+              (let ([bv (bytevector 1 2 3 4 5)])
+                (bytevector-copy! bv 0 #u8(6 7 8 9 10))
+                bv))
+(check-equal? "bytevector-copy!, with start"
+              #u8(8 9 10 4 5)
+              (let ([bv (bytevector 1 2 3 4 5)])
+                (bytevector-copy! bv 0 #u8(6 7 8 9 10) 2)
+                bv))
+(check-equal? "bytevector-copy!, into the middle"
+              #u8(1 2 6 7 8)
+              (let ([bv (bytevector 1 2 3 4 5)])
+                (bytevector-copy! bv 2 #u8(6 7 8 9 10) 0 3)
+                bv))
+(check-equal? "bytevector-copy!, one byte"
+              #u8(1 2 8 4 5)
+              (let ([bv (bytevector 1 2 3 4 5)])
+                (bytevector-copy! bv 2 #u8(6 7 8 9 10) 2 3)
+                bv))
 
 ;; same source and dest
-(skip-compile (check-equal? "TODO"
-                            #u8(1 1 2 4 5)
-                            (let ([bv (bytevector 1 2 3 4 5)])
-                              (bytevector-copy! bv 1 bv 0 2)
-                              bv)))
-(skip-compile (check-equal? "TODO"
-                            #u8(1 2 3 1 2)
-                            (let ([bv (bytevector 1 2 3 4 5)])
-                              (bytevector-copy! bv 3 bv 0 2)
-                              bv)))
+(check-equal? "bytevector-copy!, overlapping"
+              #u8(1 1 2 4 5)
+              (let ([bv (bytevector 1 2 3 4 5)])
+                (bytevector-copy! bv 1 bv 0 2)
+                bv))
+(check-equal? "bytevector-copy!, apart"
+              #u8(1 2 3 1 2)
+              (let ([bv (bytevector 1 2 3 4 5)])
+                (bytevector-copy! bv 3 bv 0 2)
+                bv))
 
 (check-equal? "bytevector-append, empty" #u8() (bytevector-append #u8()))
 (check-equal? "bytevector-append, empties" #u8() (bytevector-append #u8() #u8()))
@@ -384,21 +384,21 @@
 (check-equal? "read, stacked datum comments" '(c) (read (open-input-string "#;(a) #;(b) (c)")))
 (check-equal? "read, a datum comment inside a list" '(kept) (read (open-input-string "(#;(a) kept)")))
 
-(check-err? "read, input that is not utf8 is an error"
-            (read (open-input-bytevector #u8(40 255 41)))
-            'unreachable)
+(check-equal? "read, bytes that are not utf8 read as the replacement character"
+              (list (string->symbol (string #\u{fffd})))
+              (read (open-input-bytevector #u8(40 255 41))))
 (check-equal? "read, a datum before bytes that are not utf8 still reads"
               '(a)
               (read (open-input-bytevector #u8(40 97 41 32 255))))
-(check-equal? "read, a datum that touches bytes that are not utf8 still reads"
-              42
+(check-equal? "read, a datum that touches bytes that are not utf8 absorbs the replacement character"
+              (string->symbol "42\xfffd;")
               (read (open-input-bytevector #u8(52 50 255))))
-(check-equal? "read, a datum in front of a sequence that is cut short still reads"
-              42
+(check-equal? "read, a sequence that is cut short absorbs the replacement character"
+              (string->symbol "42\xfffd;")
               (read (open-input-bytevector #u8(52 50 195))))
-(check-err? "read, a sequence that is cut short is an error rather than the end of the source"
-            (read (open-input-bytevector #u8(195)))
-            'unreachable)
+(check-equal? "read, a sequence that is cut short is not the end of the source"
+              (string->symbol (string #\u{fffd}))
+              (read (open-input-bytevector #u8(195))))
 
 (check-equal? "read, deeply nested list"
               1
@@ -436,3 +436,5 @@
 (displayln "Failed: " (hash-ref r7rs-test-stats 'failure-count))
 
 (for-each (lambda (x) (displayln "    > " x)) (hash-ref r7rs-test-stats 'failures))
+
+(assert! (= 0 (hash-ref r7rs-test-stats 'failure-count)))

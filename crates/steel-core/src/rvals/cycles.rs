@@ -2370,36 +2370,6 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     }
                     continue;
                 }
-                (Rational(l), Rational(r)) => {
-                    if l != r {
-                        return false;
-                    }
-                    continue;
-                }
-                (BigRational(l), BigRational(r)) => {
-                    if l != r {
-                        return false;
-                    }
-                    continue;
-                }
-                (ByteVector(l), ByteVector(r)) => {
-                    if l != r {
-                        return false;
-                    }
-                    continue;
-                }
-                (Complex(l), Complex(r)) => {
-                    if Gc::ptr_eq(&l, &r) {
-                        continue;
-                    }
-
-                    self.left.push_back(l.re.clone());
-                    self.left.push_back(l.im.clone());
-                    self.right.push_back(r.re.clone());
-                    self.right.push_back(r.im.clone());
-
-                    continue;
-                }
                 (SyntaxObject(l), SyntaxObject(r)) => {
                     if Gc::ptr_eq(&l, &r) {
                         continue;
