@@ -61,9 +61,8 @@
          (problem-report 400 "a request carried both Transfer-Encoding: chunked and Content-Length")
          'chunked)]
     [(not (empty? encodings))
-     (problem-report
-      501
-      (string-append "unsupported Transfer-Encoding: " (string-join encodings ", ")))]
+     (problem-report 501
+                     (string-append "unsupported Transfer-Encoding: " (string-join encodings ", ")))]
     [(and declared (> declared *max-body-bytes*))
      (problem-report 413
                      (string-append "a request declared a body of " (int->string declared) " bytes"))]
@@ -196,10 +195,7 @@
   (write-wire! writer (response->wire received keep-alive method)))
 
 (define (answer-to handler sent)
-  (define answered
-    (with-handler (lambda (err)
-                    (make-response 500))
-                  (handler sent)))
+  (define answered (with-handler (lambda (err) (make-response 500)) (handler sent)))
   (if (framable? answered (request-method sent))
       answered
       (make-response 500)))
@@ -222,10 +218,11 @@
                   (write-wire! writer (response->wire answered keep-alive? method))
                   #t)))
 
+;; TODO: Add thread pool support here
 ;;@doc
 ;; Serves requests on one connection until it ends, and returns how many it
 ;; served. `handler` takes a `request?` and returns a `response?`; a raise, or
-;; any other value, becomes a 500. TODO: Add thread pool support here
+;; any other value, becomes a 500.
 ;;
 ;; (http-serve-connection reader writer handler [#:keep-alive keep-alive]
 ;;                        [#:limit limit]) -> int?
@@ -275,8 +272,9 @@
      (http-serve-connection (car ports) (cdr ports) handler #:keep-alive keep-alive #:limit limit))
    (lambda () (with-handler (lambda (err) void) (tcp-shutdown! stream)))))
 
-;;@doc
 ;; TODO: Add threads here
+;;@doc
+;; # Examples
 ;;
 ;; ```scheme
 ;; (define server (http-listen "127.0.0.1:0"))

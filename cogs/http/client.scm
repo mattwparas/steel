@@ -75,7 +75,7 @@
                  (int->string (url-port url))))
 
 ;;@doc
-;; Opens a plain tcp connection to the host of a url
+;; Opens a plain tcp connection to the host of a url.
 (define (tcp-connector url #:read-timeout [read-timeout #f])
   (unless (equal? (url-scheme url) "http")
     (error "http: the tcp connector only speaks http, not"
@@ -88,8 +88,9 @@
              (lambda () (with-handler (lambda (err) void) (tcp-shutdown! stream)))))
 
 ;;@doc
-;; The procedure the client uses to reach a host: a url in, a `transport?`
-;; out
+;; The procedure the client uses to reach a host: a url in, a `transport?` out.
+;;
+;; # Examples
 ;;
 ;; ```scheme
 ;; (parameterize ([current-http-connector
@@ -101,7 +102,7 @@
 (struct connection (transport origin) #:transparent)
 
 ;;@doc
-;; Opens a connection to the origin of `target`
+;; Opens a connection to the origin of `target`.
 (define (http-connect target)
   (define url (parse-url target))
   (unless (url-port url)
@@ -142,7 +143,7 @@
     [else headers]))
 
 ;;@doc
-;; Write the `request` over `connection`
+;; Writes the `request` over `connection`.
 (define (http-write-request! connection request #:keep-alive [keep-alive #f])
   (define head
     (string-append (request-method request)

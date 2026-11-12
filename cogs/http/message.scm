@@ -89,8 +89,7 @@
     [(url-userinfo url)
      (header-set headers
                  "Authorization"
-                 (string-append "Basic "
-                                (base64-encode (url-decode (url-userinfo url) #:form #f))))]
+                 (string-append "Basic " (base64-encode (url-decode (url-userinfo url) #:form #f))))]
     [else headers]))
 
 ;;@doc
@@ -311,9 +310,7 @@
 
 (define (hex-digit-char? char)
   (define code (char->integer char))
-  (or (digit-char? char)
-      (and (>= code 65) (<= code 70))
-      (and (>= code 97) (<= code 102))))
+  (or (digit-char? char) (and (>= code 65) (<= code 70)) (and (>= code 97) (<= code 102))))
 
 (define (content-length headers)
   (define parts
@@ -323,8 +320,7 @@
   (cond
     [(empty? parts) #f]
     [else
-     (let ([lengths (map (lambda (part)
-                           (and (every-char? part digit-char?) (string->number part)))
+     (let ([lengths (map (lambda (part) (and (every-char? part digit-char?) (string->number part)))
                          parts)])
        (for-each (lambda (each)
                    (unless (and (int? each) (>= each 0))

@@ -105,11 +105,7 @@
   (substring str at (string-length str)))
 
 (define (scheme-char? char)
-  (or (ascii-letter? char)
-      (char-digit? char)
-      (char=? char #\+)
-      (char=? char #\-)
-      (char=? char #\.)))
+  (or (ascii-letter? char) (char-digit? char) (char=? char #\+) (char=? char #\-) (char=? char #\.)))
 
 (define (scheme-name? str)
   (and (not (equal? str ""))
@@ -164,7 +160,7 @@
 
 ;;@doc
 ;; Parses a url, leaving percent escapes as given. A url that is already parsed is
-;; returned unchanged
+;; returned unchanged.
 (define (parse-url input)
   (if (url? input)
       input
@@ -407,6 +403,8 @@
 
 ;;@doc
 ;; Encodes an alist as a query string, where a `#false` value means no `=`.
+;;
+;; # Examples
 ;;
 ;; ```scheme
 ;; (alist->query '(("q" . "a b") ("page" . 2))) ;; => "q=a%20b&page=2"

@@ -43,7 +43,9 @@
                             (with-handler (lambda (err) void) (close-port (list-ref ports 1))))))
 
 ;;@doc
-;; Builds a connector for both `https` and `http`
+;; Builds a connector for both `https` and `http`.
+;;
+;; # Examples
 ;;
 ;; ```scheme
 ;; (parameterize ([current-http-connector https-connector])

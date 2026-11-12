@@ -48,7 +48,7 @@
 
 ;;@doc
 ;; Converts an alist, a list of two element lists, or a hashmap into a header
-;; alist
+;; alist.
 (define (normalize-headers headers)
   (cond
     [(hash? headers)
@@ -88,8 +88,7 @@
   (filter (lambda (token) (not (equal? token "")))
           (map (lambda (part) (string-downcase (trim part)))
                (apply append
-                      (map (lambda (value) (split-many value ","))
-                           (header-ref* headers name))))))
+                      (map (lambda (value) (split-many value ",")) (header-ref* headers name))))))
 
 ;;@doc
 ;; Whether `name` is present

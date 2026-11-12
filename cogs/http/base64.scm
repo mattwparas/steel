@@ -16,6 +16,8 @@
 ;;@doc
 ;; Encodes bytes, or the utf8 bytes of a string, as padded base64.
 ;;
+;; # Examples
+;;
 ;; ```scheme
 ;; (base64-encode "user:password") ;; => "dXNlcjpwYXNzd29yZA=="
 ;; ```
