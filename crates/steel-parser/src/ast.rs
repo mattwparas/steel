@@ -2,14 +2,21 @@ use crate::{
     parser::{ParseError, SyntaxObject},
     tokens::{NumberLiteral, ParenMod, RealLiteral, TokenType},
 };
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
 use core::{convert::TryFrom, fmt::Write};
 use thin_vec::ThinVec;
 
+use crate::pretty::Doc;
 use crate::tokens::IntLiteral;
 use core::fmt;
 use core::ops::Deref;
-use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
 
 use thin_vec::thin_vec;
@@ -67,11 +74,13 @@ define_symbols! {
 }
 
 pub trait AstTools {
+    #[cfg(feature = "std")]
     fn pretty_print(&self);
     fn pretty_print_log(&self);
 }
 
 impl AstTools for Vec<ExprKind> {
+    #[cfg(feature = "std")]
     fn pretty_print(&self) {
         println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
@@ -81,6 +90,7 @@ impl AstTools for Vec<ExprKind> {
 }
 
 impl AstTools for Vec<&ExprKind> {
+    #[cfg(feature = "std")]
     fn pretty_print(&self) {
         println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
@@ -90,6 +100,7 @@ impl AstTools for Vec<&ExprKind> {
 }
 
 impl AstTools for &mut Vec<ExprKind> {
+    #[cfg(feature = "std")]
     fn pretty_print(&self) {
         println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
@@ -476,11 +487,11 @@ impl ExprKind {
 }
 
 pub trait ToDoc {
-    fn to_doc(&self) -> RcDoc<'_, ()>;
+    fn to_doc(&self) -> Doc<'_>;
 }
 
 impl ToDoc for ExprKind {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
+    fn to_doc(&self) -> Doc<'_> {
         match self {
             ExprKind::Atom(a) => a.to_doc(),
             ExprKind::If(i) => i.to_doc(),
@@ -502,9 +513,7 @@ impl ToDoc for ExprKind {
 
 impl ExprKind {
     pub fn to_pretty(&self, width: usize) -> String {
-        let mut w = Vec::new();
-        self.to_doc().render(width, &mut w).unwrap();
-        String::from_utf8(w).unwrap()
+        self.to_doc().pretty(width)
     }
 }
 
@@ -578,8 +587,8 @@ impl fmt::Display for Atom {
 }
 
 impl ToDoc for Atom {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text(self.syn.ty.to_string())
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text(self.syn.ty.to_string())
     }
 }
 
@@ -635,28 +644,28 @@ impl fmt::Display for Let {
 }
 
 impl ToDoc for Let {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("(%plain-let")
-            .append(RcDoc::space())
-            .append(RcDoc::text("("))
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("(%plain-let")
+            .append(Doc::space())
+            .append(Doc::text("("))
             .append(
-                RcDoc::intersperse(
+                Doc::intersperse(
                     self.bindings.iter().map(|x| {
-                        RcDoc::text("(")
+                        Doc::text("(")
                             .append(x.0.to_doc())
-                            .append(RcDoc::space())
+                            .append(Doc::space())
                             .append(x.1.to_doc())
-                            .append(RcDoc::text(")"))
+                            .append(Doc::text(")"))
                     }),
-                    RcDoc::line(),
+                    Doc::line(),
                 )
                 .nest(2)
                 .group(),
             )
-            .append(RcDoc::text(")"))
-            .append(RcDoc::line())
+            .append(Doc::text(")"))
+            .append(Doc::line())
             .append(self.body_expr.to_doc())
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(2)
     }
 }
@@ -691,13 +700,13 @@ impl fmt::Display for Set {
 }
 
 impl ToDoc for Set {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("(set!")
-            .append(RcDoc::space())
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("(set!")
+            .append(Doc::space())
             .append(self.variable.to_doc())
-            .append(RcDoc::line())
+            .append(Doc::line())
             .append(self.expr.to_doc())
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(2)
             .group()
     }
@@ -718,15 +727,15 @@ pub struct If {
 }
 
 impl ToDoc for If {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("(if")
-            .append(RcDoc::space())
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("(if")
+            .append(Doc::space())
             .append(self.test_expr.to_doc())
-            .append(RcDoc::line())
+            .append(Doc::line())
             .append(self.then_expr.to_doc())
-            .append(RcDoc::line())
+            .append(Doc::line())
             .append(self.else_expr.to_doc())
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(2)
             .group()
     }
@@ -780,13 +789,13 @@ impl fmt::Display for Define {
 }
 
 impl ToDoc for Define {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("(define")
-            .append(RcDoc::space())
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("(define")
+            .append(Doc::space())
             .append(self.name.to_doc())
-            .append(RcDoc::line())
+            .append(Doc::line())
             .append(self.body.to_doc())
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(2)
     }
 }
@@ -867,28 +876,28 @@ impl fmt::Display for LambdaFunction {
 }
 
 impl ToDoc for LambdaFunction {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
+    fn to_doc(&self) -> Doc<'_> {
         if self.rest && self.args.len() == 1 {
-            RcDoc::text("(λ")
-                .append(RcDoc::space())
+            Doc::text("(λ")
+                .append(Doc::space())
                 .append(self.args.first().unwrap().to_doc())
-                .append(RcDoc::line())
+                .append(Doc::line())
                 .append(self.body.to_doc())
-                .append(RcDoc::text(")"))
+                .append(Doc::text(")"))
                 .nest(2)
         } else {
-            RcDoc::text("(λ")
-                .append(RcDoc::space())
-                .append(RcDoc::text("("))
+            Doc::text("(λ")
+                .append(Doc::space())
+                .append(Doc::text("("))
                 .append(
-                    RcDoc::intersperse(self.args.iter().map(|x| x.to_doc()), RcDoc::line())
+                    Doc::intersperse(self.args.iter().map(|x| x.to_doc()), Doc::line())
                         .nest(2)
                         .group(),
                 )
-                .append(RcDoc::text(")"))
-                .append(RcDoc::line())
+                .append(Doc::text(")"))
+                .append(Doc::line())
                 .append(self.body.to_doc())
-                .append(RcDoc::text(")"))
+                .append(Doc::text(")"))
                 .nest(2)
         }
     }
@@ -971,16 +980,16 @@ impl fmt::Display for Begin {
 }
 
 impl ToDoc for Begin {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("(begin")
-            .append(RcDoc::line())
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("(begin")
+            .append(Doc::line())
             .nest(5)
             .append(
-                RcDoc::intersperse(self.exprs.iter().map(|x| x.to_doc()), RcDoc::line())
+                Doc::intersperse(self.exprs.iter().map(|x| x.to_doc()), Doc::line())
                     .nest(5)
                     .group(),
             )
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(1)
             .group()
     }
@@ -1011,11 +1020,11 @@ impl Return {
 }
 
 impl ToDoc for Return {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("(return")
-            .append(RcDoc::line())
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("(return")
+            .append(Doc::line())
             .append(self.expr.to_doc())
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(2)
     }
 }
@@ -1045,15 +1054,15 @@ impl Require {
 }
 
 impl ToDoc for Require {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("(require")
-            .append(RcDoc::line())
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("(require")
+            .append(Doc::line())
             .append(
-                RcDoc::intersperse(self.modules.iter().map(|x| x.to_doc()), RcDoc::line())
+                Doc::intersperse(self.modules.iter().map(|x| x.to_doc()), Doc::line())
                     .nest(2)
                     .group(),
             )
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(2)
     }
 }
@@ -1118,15 +1127,15 @@ impl fmt::Display for Vector {
 }
 
 impl ToDoc for Vector {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text(self.prefix().as_str())
-            .append("(")
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text(self.prefix().as_str())
+            .append(Doc::text("("))
             .append(
-                RcDoc::intersperse(self.args.iter().map(ToDoc::to_doc), RcDoc::line())
+                Doc::intersperse(self.args.iter().map(ToDoc::to_doc), Doc::line())
                     .nest(1)
                     .group(),
             )
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(2)
             .group()
     }
@@ -1420,51 +1429,51 @@ impl List {
 }
 
 impl ToDoc for List {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
+    fn to_doc(&self) -> Doc<'_> {
         if let Some(func) = self.first_func().filter(|_| !self.improper) {
             let mut args_iter = self.args.iter();
             args_iter.next();
 
             let bindings = func.args.iter().zip(args_iter);
 
-            RcDoc::text("(let")
-                .append(RcDoc::space())
-                .append(RcDoc::text("("))
+            Doc::text("(let")
+                .append(Doc::space())
+                .append(Doc::text("("))
                 .append(
-                    RcDoc::intersperse(
+                    Doc::intersperse(
                         bindings.map(|x| {
-                            RcDoc::text("(")
+                            Doc::text("(")
                                 .append(x.0.to_doc())
-                                .append(RcDoc::space())
+                                .append(Doc::space())
                                 .append(x.1.to_doc())
-                                .append(RcDoc::text(")"))
+                                .append(Doc::text(")"))
                         }),
-                        RcDoc::line(),
+                        Doc::line(),
                     )
                     .nest(2)
                     .group(),
                 )
-                .append(RcDoc::text(")"))
-                .append(RcDoc::line())
+                .append(Doc::text(")"))
+                .append(Doc::line())
                 .append(func.body.to_doc())
-                .append(RcDoc::text(")"))
+                .append(Doc::text(")"))
                 .nest(2)
         } else {
             let args = if let Some((car, cdr)) = self.split_improper() {
                 let iter = car
                     .iter()
                     .map(ToDoc::to_doc)
-                    .chain(core::iter::once(RcDoc::text(".")))
+                    .chain(core::iter::once(Doc::text(".")))
                     .chain(core::iter::once(cdr.to_doc()));
 
-                RcDoc::intersperse(iter, RcDoc::line())
+                Doc::intersperse(iter, Doc::line())
             } else {
-                RcDoc::intersperse(self.args.iter().map(ToDoc::to_doc), RcDoc::line())
+                Doc::intersperse(self.args.iter().map(ToDoc::to_doc), Doc::line())
             };
 
-            RcDoc::text("(")
+            Doc::text("(")
                 .append(args.nest(1).group())
-                .append(RcDoc::text(")"))
+                .append(Doc::text(")"))
                 .nest(2)
                 .group()
         }
@@ -1525,11 +1534,11 @@ impl Quote {
 }
 
 impl ToDoc for Quote {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("(quote")
-            .append(RcDoc::line())
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("(quote")
+            .append(Doc::line())
             .append(self.expr.to_doc())
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(2)
     }
 }
@@ -1562,13 +1571,13 @@ impl fmt::Display for Macro {
 }
 
 impl ToDoc for Macro {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("(define-syntax")
-            .append(RcDoc::line())
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("(define-syntax")
+            .append(Doc::line())
             .append(self.name.to_doc())
-            .append(RcDoc::line())
+            .append(Doc::line())
             .append(self.syntax_rules.to_doc())
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(1)
             .group()
     }
@@ -1625,23 +1634,23 @@ impl fmt::Display for SyntaxRules {
 }
 
 impl ToDoc for SyntaxRules {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("(syntax-rules")
-            .append(RcDoc::line())
-            .append(RcDoc::text("("))
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("(syntax-rules")
+            .append(Doc::line())
+            .append(Doc::text("("))
             .append(
-                RcDoc::intersperse(self.syntax.iter().map(|x| x.to_doc()), RcDoc::line())
+                Doc::intersperse(self.syntax.iter().map(|x| x.to_doc()), Doc::line())
                     .nest(1)
                     .group(),
             )
-            .append(RcDoc::text(")"))
-            .append(RcDoc::line())
+            .append(Doc::text(")"))
+            .append(Doc::line())
             .append(
-                RcDoc::intersperse(self.patterns.iter().map(|x| x.to_doc()), RcDoc::line())
+                Doc::intersperse(self.patterns.iter().map(|x| x.to_doc()), Doc::line())
                     .nest(2)
                     .group(),
             )
-            .append(RcDoc::text(")"))
+            .append(Doc::text(")"))
             .nest(2)
     }
 }
@@ -1681,12 +1690,12 @@ impl PatternPair {
 }
 
 impl ToDoc for PatternPair {
-    fn to_doc(&self) -> RcDoc<'_, ()> {
-        RcDoc::text("[")
+    fn to_doc(&self) -> Doc<'_> {
+        Doc::text("[")
             .append(self.pattern.to_doc())
-            .append(RcDoc::line())
+            .append(Doc::line())
             .append(self.body.to_doc())
-            .append(RcDoc::text("]"))
+            .append(Doc::text("]"))
             .nest(1)
             .group()
     }

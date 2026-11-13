@@ -3,6 +3,7 @@ use crate::interner::InternedString;
 use crate::tokens::{IntLiteral, Token, TokenLike, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
 use alloc::borrow::Cow;
+use alloc::string::{String, ToString};
 use core::char;
 use core::iter::Iterator;
 use core::ops::Range;

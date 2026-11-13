@@ -931,7 +931,7 @@ impl Backend {
 
                             if let Some(mut define_ast) = define_ast {
                                 // Set up the pretty printed AST as well
-                                let mut ast = Vec::new();
+                                let mut ast = String::new();
 
                                 if let ExprKind::LambdaFunction(l) = &mut define_ast.body {
                                     // Format the args and body:
@@ -949,8 +949,7 @@ impl Backend {
 ```scheme
 {}
 ```"#,
-                                    definition,
-                                    String::from_utf8(ast).unwrap()
+                                    definition, ast
                                 );
 
                                 return Some(Hover {
@@ -1183,7 +1182,7 @@ impl Backend {
         match top_level_define {
             Some(top_level_define) => {
                 // Set up the pretty printed AST as well
-                let mut ast = Vec::new();
+                let mut ast = String::new();
 
                 if let ExprKind::LambdaFunction(l) = &mut top_level_define_ast.body {
                     // Format the args and body:
@@ -1198,8 +1197,7 @@ impl Backend {
 ```scheme
 {}
 ```"#,
-                    definition_body,
-                    String::from_utf8(ast).unwrap()
+                    definition_body, ast
                 );
 
                 return Some(Hover {
@@ -1209,7 +1207,7 @@ impl Backend {
             }
             None => {
                 // Set up the pretty printed AST as well
-                let mut ast = Vec::new();
+                let mut ast = String::new();
 
                 if let ExprKind::LambdaFunction(l) = &mut top_level_define_ast.body {
                     // Format the args and body:
@@ -1226,7 +1224,7 @@ impl Backend {
                     r#"```scheme
 {}
 ```"#,
-                    String::from_utf8(ast).unwrap()
+                    ast
                 );
 
                 // let definition = top_level_define_ast.to_string();

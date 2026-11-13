@@ -1,4 +1,11 @@
 use alloc::{borrow::Cow, rc::Rc};
+use alloc::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::result;
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::path::PathBuf;
@@ -3350,127 +3357,3 @@ mod parser_tests {
         );
     }
 }
-
-use core::cell::RefCell;
-use core::default::Default;
-use core::ops::{Deref, DerefMut};
-
-pub trait Recyclable {
-    fn put(self);
-    fn get() -> Self;
-    fn get_with_capacity(capacity: usize) -> Self;
-}
-
-pub struct Recycle<T: Recyclable + Default> {
-    t: T,
-}
-
-impl<T: Recyclable + Default> Default for Recycle<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T: Recyclable + Default> Recycle<T> {
-    pub fn new() -> Self {
-        Recycle { t: T::get() }
-    }
-
-    pub fn new_with_capacity(capacity: usize) -> Self {
-        Recycle {
-            t: T::get_with_capacity(capacity),
-        }
-    }
-}
-
-impl<T: Recyclable + Default> Drop for Recycle<T> {
-    fn drop(&mut self) {
-        T::put(core::mem::take(&mut self.t))
-    }
-}
-
-impl<T: Recyclable + Default> Deref for Recycle<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        &self.t
-    }
-}
-
-impl<T: Recyclable + Default + 'static> DerefMut for Recycle<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        &mut self.t
-    }
-}
-
-impl<T: Recyclable + Clone + Default> Clone for Recycle<T> {
-    fn clone(&self) -> Self {
-        Recycle { t: self.t.clone() }
-    }
-}
-
-impl<T: Recyclable + core::fmt::Debug + Default> core::fmt::Debug for Recycle<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Recycle").field("t", &self.t).finish()
-    }
-}
-
-impl<T: Recyclable + core::hash::Hash + Default> core::hash::Hash for Recycle<T> {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.t.hash(state);
-    }
-}
-
-macro_rules! impl_recyclable {
-    ($tl:ident, $t:ty) => {
-        impl_recyclable!($tl, $t, Default::default(), Self::with_capacity);
-    };
-    ($tl:ident, $t:ty, $constructor:expr, $constructor_capacity:expr) => {
-        thread_local! {
-            static $tl: RefCell<Vec<$t>> = RefCell::new(Vec::new())
-        }
-
-        impl Recyclable for $t {
-            fn put(mut self) {
-                let _ = $tl.try_with(|p| {
-                    let p = p.try_borrow_mut();
-
-                    if let Ok(mut p) = p {
-                        // This _should_ be cleared, but it seems it is not!
-                        // debug_assert!(self.is_empty());
-                        // self.clear();
-
-                        // for frame in &self {
-                        //     for expr in &frame.exprs {
-                        //         println!("dropping: {}", expr);
-                        //     }
-                        // }
-
-                        // dbg!(&self);
-                        self.clear();
-
-                        p.push(self);
-                    }
-                });
-            }
-
-            fn get() -> Self {
-                $tl.with(|p| {
-                    let mut p = p.borrow_mut();
-                    p.pop()
-                })
-                .unwrap_or($constructor)
-            }
-
-            fn get_with_capacity(capacity: usize) -> Self {
-                $tl.with(|p| {
-                    let mut p = p.borrow_mut();
-                    p.pop()
-                })
-                .unwrap_or(($constructor_capacity)(capacity))
-            }
-        }
-    };
-}
-
-impl_recyclable!(TL_V_STEELVAL, Vec<Frame>);
