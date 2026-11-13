@@ -1,5 +1,6 @@
 (require-builtin steel/tcp)
 (require-builtin #%private/steel/readline)
+(require "steel/line-editor")
 
 (require "steel/sync")
 
@@ -33,7 +34,13 @@
   ;; Print out the startup message for the repl, and then
   ;; we'll enter the event loop waiting for input.
   (#%repl-display-startup)
-  (define rl (#%create-repl))
+  ;; The REPL's line editor and history, without completion: the names
+  ;; live on the server
+  (define rl (make-line-editor (#%repl-history-path)))
+  (set-line-editor-highlighter! rl (steel-highlighter))
+  (define prompt
+    (let ([esc (string (integer->char 27))])
+      (string-append esc "[1;3;92mλ > " esc "[0m")))
 
   (define buffer (bytevector))
 
@@ -83,21 +90,25 @@
 
   ;; Read input, send on the stream
   (define (input-loop)
-    (define input (#%read-line rl))
-    (#%repl-add-history-entry rl input)
-
-    ;; Show the error, go again
-    (with-handler (lambda (err) (displayln err))
-                  (write (read (open-input-string input)) writer)
-                  (newline writer)
-                  ;; Selection. Wait on either an acknowledgement, or a shutdown?
-                  (define result (receivers-select receiver shutdown-receiver))
-                  (case result
-                    [(0)
-                     (channel/recv receiver)
-                     (input-loop)]
-                    [(1) (displayln "Shutting down")]
-                    [else void])))
+    (define input (line-editor-read-line! rl prompt))
+    (cond
+      ;; C-d
+      [(equal? input 'eof) (displayln "Shutting down")]
+      ;; C-c: nothing to send, ask again
+      [(symbol? input) (input-loop)]
+      [else
+       ;; Show the error, go again
+       (with-handler (lambda (err) (displayln err))
+                     (write (read (open-input-string input)) writer)
+                     (newline writer)
+                     ;; Selection. Wait on either an acknowledgement, or a shutdown?
+                     (define result (receivers-select receiver shutdown-receiver))
+                     (case result
+                       [(0)
+                        (channel/recv receiver)
+                        (input-loop)]
+                       [(1) (displayln "Shutting down")]
+                       [else void]))]))
   (input-loop))
 
 (define (main)

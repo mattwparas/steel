@@ -1,8 +1,6 @@
 #[macro_use]
 mod repl;
 mod editor;
-#[cfg(feature = "rustyline")]
-mod highlight;
 #[cfg(test)]
 mod line_editor_tests;
 mod steel_editor;

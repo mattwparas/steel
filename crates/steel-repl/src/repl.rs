@@ -23,8 +23,8 @@ use std::time::Instant;
 
 use std::env;
 
-use crate::editor::{self, Input, LineEditor};
-use crate::steel_editor::{self, SteelEditor};
+use crate::editor::{self, Input, PlainEditor};
+use crate::steel_editor::SteelEditor;
 
 fn display_help() {
     println!(
@@ -128,7 +128,9 @@ fn finish_or_interrupt(vm: &mut Engine, line: String) {
     let _ = std::io::stdout().flush();
 }
 
-struct LineReader(Box<dyn LineEditor>);
+/// What `#%create-repl` hands out: plain lines. The Steel line editor is
+/// `steel/line-editor`, used directly from Steel.
+struct LineReader(PlainEditor);
 impl Custom for LineReader {}
 
 #[derive(Debug)]
@@ -278,10 +280,17 @@ pub fn readline_module(vm: &mut Engine) {
         })
         .register_fn(
             "#%repl-add-history-entry",
-            |rl: &mut LineReader, entry: SteelString| rl.0.add_history_entry(entry.as_str()),
+            // Plain lines keep no history
+            |_: &mut LineReader, _: SteelString| {},
         )
+        // Where the REPL keeps its history, for line editors of other REPLs
+        .register_fn("#%repl-history-path", || {
+            get_default_repl_history_path()
+                .to_string_lossy()
+                .into_owned()
+        })
         .register_fn("#%create-repl", || {
-            LineReader(editor::new_module_editor(&get_default_repl_history_path()))
+            LineReader(PlainEditor)
         })
         .register_fn("#%read-line", |rl: &mut LineReader| {
             let prompt = format!("{}", "λ > ".bright_green().bold().italic());
@@ -381,8 +390,10 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
 
         let close_on_interrupt = Arc::new(AtomicBool::new(false));
 
+        // The Steel line editor on a terminal, plain lines otherwise or when
+        // asked for (STEEL_REPL_PLAIN=1)
         let mut steel_editor = None;
-        if steel_editor::requested() && crate::terminal::is_terminal() {
+        if crate::terminal::is_terminal() && !editor::plain_requested() {
             match SteelEditor::new(
                 &mut self.vm,
                 &history_path,
@@ -402,16 +413,11 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
             safepoint.resume();
         };
 
-        // Not rustyline next to the Steel editor: saving its history at exit
-        // would drop what the Steel editor appended
-        let mut rl: Box<dyn LineEditor> = if steel_editor.is_some() {
-            Box::new(editor::PlainEditor)
-        } else {
-            editor::new_editor(&history_path, globals.clone(), close_on_interrupt.clone())
-        };
+        // The Steel editor keeps the history file up to date itself
+        let mut rl = PlainEditor;
 
         while rx.try_recv().is_err() {
-            // Update globals for highlighting
+            // Update globals for completion and highlighting
             // TODO: Come up with some kind of subscription API?
             let known_globals_length = globals.lock().unwrap().len();
             let updated_globals_length = self.vm.globals().len();
@@ -441,7 +447,6 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
 
             match readline {
                 Ok(Input::Line(line)) => {
-                    rl.add_history_entry(line.as_str());
                     match line.as_str().trim() {
                         ":q" | ":quit" => return Ok(()),
                         ":time" => {
@@ -517,10 +522,6 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
                 }
             }
         }
-        if let Err(err) = rl.save_history(&history_path) {
-            eprintln!("Failed to save REPL history: {}", err);
-        }
-
         Ok(())
     }
 }

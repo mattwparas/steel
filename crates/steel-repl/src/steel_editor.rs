@@ -16,11 +16,6 @@ use steel_parser::interner::InternedString;
 
 use crate::editor::Input;
 
-/// Set `STEEL_REPL_EDITOR=steel` to read with the Steel editor
-pub(crate) fn requested() -> bool {
-    std::env::var("STEEL_REPL_EDITOR").is_ok_and(|value| value == "steel")
-}
-
 pub(crate) struct SteelEditor {
     editor: SteelVal,
     read_line: SteelVal,
