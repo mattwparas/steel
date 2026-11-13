@@ -162,62 +162,6 @@ fn io_error(err: std::io::Error) -> SteelErr {
     SteelErr::new(ErrorKind::Io, err.to_string())
 }
 
-fn tokenize(text: &str) -> Vec<SteelVal> {
-    use steel_parser::lexer::TokenStream;
-    use steel_parser::parser::SourceId;
-    use steel_parser::tokens::TokenType;
-
-    // Spans are in bytes, Steel strings index by char
-    let mut chars_before = vec![0usize; text.len() + 1];
-    let mut count = 0;
-    for (byte, c) in text.char_indices() {
-        for slot in &mut chars_before[byte..byte + c.len_utf8()] {
-            *slot = count;
-        }
-        count += 1;
-    }
-    chars_before[text.len()] = count;
-
-    TokenStream::new(text, true, SourceId::none())
-        .filter_map(Result::ok)
-        .map(|token| {
-            let (kind, span) = match &token.ty {
-                TokenType::OpenParen(_, paren_mod) => {
-                    ("open", TokenType::open_span(token.span, *paren_mod))
-                }
-                TokenType::CloseParen(_) => ("close", token.span),
-                TokenType::If
-                | TokenType::Define
-                | TokenType::Let
-                | TokenType::Lambda
-                | TokenType::Require
-                | TokenType::Begin
-                | TokenType::Set
-                | TokenType::Quote
-                | TokenType::DefineSyntax
-                | TokenType::SyntaxRules => ("form", token.span),
-                TokenType::Identifier(_) => ("identifier", token.span),
-                TokenType::Keyword(_) => ("keyword", token.span),
-                TokenType::StringLiteral(_) => ("string", token.span),
-                TokenType::Number(_) => ("number", token.span),
-                TokenType::CharacterLiteral(_) => ("char", token.span),
-                TokenType::BooleanLiteral(_) => ("boolean", token.span),
-                _ => ("other", token.span),
-            };
-            let start = chars_before[(span.start as usize).min(text.len())];
-            let end = chars_before[(span.end as usize).min(text.len())];
-            SteelVal::ListV(
-                vec![
-                    SteelVal::SymbolV(kind.into()),
-                    SteelVal::IntV(start as isize),
-                    SteelVal::IntV(end as isize),
-                ]
-                .into(),
-            )
-        })
-        .collect()
-}
-
 /// `#%private/steel/terminal`, the primitives the Steel line editor is built on
 pub(crate) fn terminal_module(vm: &mut Engine) {
     use crate::terminal::{self, Byte};
@@ -257,11 +201,11 @@ pub(crate) fn terminal_module(vm: &mut Engine) {
         .register_fn("input-complete?", |text: SteelString| {
             editor::input_complete(text.as_str())
         })
-        // `(kind start end)` per token, in chars. kind is open, close, form
-        // (define, lambda and the like), identifier, keyword, string, number,
-        // char, boolean or other. Comments are skipped, and so is anything
-        // the lexer rejects.
-        .register_fn("tokenize", |text: SteelString| tokenize(text.as_str()))
+        // `(kind start end)` per token, in chars; see steel's
+        // primitives::text::tokenize
+        .register_fn("tokenize", |text: SteelString| {
+            steel::primitives::text::tokenize(text.as_str())
+        })
         .register_fn("string-graphemes", |text: SteelString| {
             terminal::graphemes(text.as_str())
                 .map(|grapheme| grapheme.to_owned())

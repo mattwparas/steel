@@ -414,11 +414,8 @@ pub fn sandboxed_prelude() -> BuiltInModule {
     }
 }
 
+// Rendering for the terminal is steel/markdown's job, loaded by `help`
 fn render_as_md(text: String) {
-    #[cfg(feature = "markdown")]
-    println!("{}", termimad::text(&text));
-
-    #[cfg(not(feature = "markdown"))]
     println!("{}", text);
 }
 
@@ -451,6 +448,7 @@ pub fn bootstrap_globals(engine: &mut Engine) {
     );
 
     engine.register_fn("%doc?", BuiltInModule::get_doc);
+    engine.register_fn("%doc-string", BuiltInModule::get_doc_string);
     engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
     engine.register_fn("%module/lookup-function", BuiltInModule::search);
     engine.register_fn("%string->render-markdown", render_as_md);
@@ -536,6 +534,7 @@ pub fn private_prim_module() -> BuiltInModule {
     );
 
     module.register_fn("%doc?", BuiltInModule::get_doc);
+    module.register_fn("%doc-string", BuiltInModule::get_doc_string);
     module.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
     module.register_fn("%module/lookup-function", BuiltInModule::search);
     module.register_fn("%string->render-markdown", render_as_md);
@@ -565,6 +564,8 @@ pub fn private_prim_module() -> BuiltInModule {
 pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     let prims = private_prim_module();
     engine.register_module(prims.clone());
+
+    engine.register_module(crate::primitives::text::text_module());
 
     for (key, value) in prims.inner_map().iter() {
         engine.register_value(key, value.clone());

@@ -632,6 +632,11 @@ impl BuiltInModuleRepr {
         }
     }
 
+    /// What `get_doc` prints
+    pub fn get_doc_string(&self, definition: String) -> Option<String> {
+        self.docs.get(&definition).map(|value| value.to_string())
+    }
+
     pub fn get_documentation(&self, definition: &str) -> Option<String> {
         self.docs
             .get(definition)
@@ -1006,6 +1011,11 @@ impl BuiltInModule {
         self.module.read().get_doc(definition);
     }
 
+    /// What `get_doc` prints
+    pub fn get_doc_string(&self, definition: String) -> Option<String> {
+        self.module.read().get_doc_string(definition)
+    }
+
     pub fn get_documentation(&self, definition: &str) -> Option<String> {
         self.module.read().get_documentation(definition)
     }
@@ -1164,13 +1174,10 @@ impl<'a> MarkdownDoc<'a> {
     }
 }
 
+// The markdown as written. steel/markdown renders it for a terminal.
 impl<'a> core::fmt::Display for MarkdownDoc<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        #[cfg(feature = "markdown")]
-        return write!(f, "{}", termimad::text(&self.0));
-
-        #[cfg(not(feature = "markdown"))]
-        return write!(f, "{}", self.0);
+        write!(f, "{}", self.0)
     }
 }
 

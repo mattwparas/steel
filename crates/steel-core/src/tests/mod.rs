@@ -17,6 +17,7 @@ mod history;
 mod local_macros;
 mod macro_modules;
 mod malformed_bindings;
+mod markdown;
 mod module_contracts;
 mod module_template_names;
 mod phase1_bindings;

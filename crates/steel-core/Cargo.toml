@@ -61,8 +61,6 @@ num-integer = "0.1.46"
 # For structs
 smallvec = { version = "1.13.0" }
 
-# Pretty printing documentation
-termimad = { version = "0.31.1", optional = true }
 
 triomphe = { version = "0.1.14", optional = true }
 
@@ -124,6 +122,9 @@ icu_properties = "2.1"
 
 thin-vec = { version = "0.2.14", features = ["serde"] }
 
+# Laying text out on a terminal (primitives/text.rs)
+unicode-width = "0.2"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # perf integration for the jit2 backend, behind STEEL_JIT_DUMP. Linux only, and
 # only pulled in with jit2
@@ -163,7 +164,9 @@ profiling = []
 unsafe-internals = []
 anyhow = ["dep:anyhow"]
 dylibs = ["dep:abi_stable", "dep:async-ffi"]
-markdown = ["dep:termimad"]
+# Embeds steel/markdown, which renders docs for the terminal when `help`
+# runs. Without it, help prints docs as written.
+markdown = []
 smallvec = []
 without-drop-protection = []
 stacker = ["dep:stacker", "steel-parser/stacker"]

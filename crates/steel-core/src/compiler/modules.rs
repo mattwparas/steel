@@ -77,9 +77,14 @@ macro_rules! time {
 }
 
 macro_rules! declare_builtins {
-    ( $( $name:expr => $path:expr ), *) => {
+    (
+        $( $name:expr => $path:expr ),* ;
+        // Modules whose source is picked some other way, by features say
+        $( $source_name:expr => source $source:expr ),*
+    ) => {
         pub static BUILT_INS: &[(&str, &str)] = &[
             $( ($name, include_str!($path)), )*
+            $( ($source_name, $source), )*
         ];
 
         // TODO: Why was this an issue? Bugs with static string internment issues?
@@ -88,9 +93,19 @@ macro_rules! declare_builtins {
                 let _ = InternedString::from($name);
                 let _ = InternedString::from($path);
             )*
+            $(
+                let _ = InternedString::from($source_name);
+            )*
         }
     };
 }
+
+// steel/markdown renders docs when `help` first loads it. Built without the
+// markdown feature it's a module that leaves docs as written.
+#[cfg(feature = "markdown")]
+const MARKDOWN_MODULE: &str = include_str!("../scheme/modules/markdown.scm");
+#[cfg(not(feature = "markdown"))]
+const MARKDOWN_MODULE: &str = include_str!("../scheme/modules/markdown-plain.scm");
 
 pub(crate) const MANGLER_SEPARATOR: &str = "__%#__";
 
@@ -139,7 +154,8 @@ declare_builtins!(
     "steel/require-transform" => "../scheme/modules/require-transform.scm",
     "steel/provide-transform" => "../scheme/modules/provide-transform.scm",
     "steel/require" => "../scheme/modules/require.scm",
-    "steel/provide" => "../scheme/modules/provide.scm"
+    "steel/provide" => "../scheme/modules/provide.scm";
+    "steel/markdown" => source MARKDOWN_MODULE
 );
 
 create_prelude!(

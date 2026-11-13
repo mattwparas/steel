@@ -1438,17 +1438,32 @@
     [(x y) (if (< y x) y x)]
     [(x . rest) (fold (lambda (y z) (if (< y z) y z)) x rest)]))
 
+;; help loads steel/markdown the first time it's used, for render-doc: a
+;; doc's markdown in, the text to print out. So it has to be used where a
+;; require can go, at the top level.
 (define-syntax help
   (syntax-rules ()
     [(help) (simple-displayln "help expects an identifier to lookup documentation for")]
-    [(help ident) (#%private-help ident)]
-    [(help module ident) (%doc? (#%join-identifiers %-builtin-module- module) (quote ident))]))
+    [(help ident)
+     (begin
+       (require (only-in "steel/markdown" render-doc))
+       (#%private-help ident render-doc))]
+    [(help module ident)
+     (begin
+       (require (only-in "steel/markdown" render-doc))
+       (#%private-module-help (#%join-identifiers %-builtin-module- module) (quote ident) render-doc))]))
 
-(define (#%private-help func)
-  (unless (#%native-fn-ptr-doc func)
-    (let ([doc (#%function-ptr-table-get #%function-ptr-table func)])
-      (when doc
-        (%string->render-markdown doc)))))
+(define (#%private-help func render)
+  (let ([doc (or (#%native-fn-ptr-doc->string func)
+                 (#%function-ptr-table-get #%function-ptr-table func))])
+    (when doc
+      ;; Prints the string as it is (the name is from when Rust rendered it)
+      (%string->render-markdown (render doc)))))
+
+(define (#%private-module-help module name render)
+  (let ([doc (%doc-string module name)])
+    (when doc
+      (%string->render-markdown (render doc)))))
 
 (define-syntax dbg!
   (syntax-rules ()

@@ -739,9 +739,10 @@ fn tokens_in_chars() {
     // λ is two bytes and one char; #( starts at the paren
     assert_eq!(
         steel(r#"(tokenize "(λ x \"s\" 1 #t #(1) ; c\n define)")"#),
-        // λ lexes as lambda; the comment is skipped
+        // λ lexes as lambda
         "((open 0 1) (form 1 2) (identifier 3 4) (string 5 8) (number 9 10) \
-         (boolean 11 13) (open 15 16) (number 16 17) (close 17 18) (form 24 30) (close 30 31))"
+         (boolean 11 13) (open 15 16) (number 16 17) (close 17 18) (comment 19 23) (form 24 30) \
+         (close 30 31))"
     );
 }
 

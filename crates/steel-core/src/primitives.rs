@@ -20,6 +20,7 @@ pub mod random;
 pub mod strings;
 mod symbols;
 pub mod tcp;
+pub mod text;
 pub mod time;
 pub mod transducers;
 mod utils;
