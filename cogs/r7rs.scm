@@ -399,6 +399,11 @@
 (check-equal? "read, a sequence that is cut short is not the end of the source"
               (string->symbol (string #\u{fffd}))
               (read (open-input-bytevector #u8(195))))
+(check-equal? "read, bytes after the datum stay as they were"
+              (bytes 32 255 254 0 1)
+              (let ([port (open-input-bytevector #u8(40 104 41 32 255 254 0 1))])
+                (read port)
+                (read-bytes 5 port)))
 
 (check-equal? "read, deeply nested list"
               1

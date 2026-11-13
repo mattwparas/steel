@@ -117,6 +117,18 @@ impl<T> Peekable<T> {
         !self.consumed_any
     }
 
+    fn map_inner<U>(self, op: impl FnOnce(T) -> U) -> Peekable<U> {
+        Peekable {
+            inner: op(self.inner),
+            buf: self.buf,
+            pos: self.pos,
+            chunk: self.chunk,
+            consumed_any: self.consumed_any,
+            deadline: self.deadline,
+            suspended: self.suspended,
+        }
+    }
+
     pub fn pending(&self) -> &[u8] {
         &self.buf[self.pos..]
     }
@@ -157,28 +169,6 @@ impl<T> Peekable<T> {
         let pending = self.pending().len();
 
         self.suspended = state.map(|state| Box::new(SuspendedRead { state, pending }));
-    }
-
-    fn sanitize_pending(&mut self, at_eof: bool) {
-        let mut at = self.pos;
-
-        loop {
-            let err = match core::str::from_utf8(&self.buf[at..]) {
-                Ok(_) => return,
-                Err(err) => err,
-            };
-
-            let bad = at + err.valid_up_to();
-
-            let len = match err.error_len() {
-                Some(len) => len,
-                None if at_eof => self.buf.len() - bad,
-                None => return,
-            };
-
-            self.buf.splice(bad..bad + len, REPLACEMENT.iter().copied());
-            at = bad + REPLACEMENT.len();
-        }
     }
 
     fn take_pending(&mut self, out: &mut Vec<u8>) {
@@ -545,8 +535,6 @@ impl Peekable<Stdin> {
 fn first_char(str: &str) -> MaybeBlocking<Option<(char, usize)>> {
     MaybeBlocking::Nonblocking(str.chars().next().map(|c| (c, c.len_utf8())))
 }
-
-const REPLACEMENT: [u8; 3] = [0xef, 0xbf, 0xbd];
 
 fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
     MaybeBlocking::Nonblocking(Some((char::REPLACEMENT_CHARACTER, amt)))
@@ -979,21 +967,6 @@ impl SteelPortRepr {
         }
     }
 
-    pub fn sanitize_pending(&mut self, at_eof: bool) {
-        match self {
-            SteelPortRepr::FileInput(_, br) | SteelPortRepr::FileInputOutput(_, br) => {
-                br.sanitize_pending(at_eof)
-            }
-            SteelPortRepr::StdInput(br) => br.sanitize_pending(at_eof),
-            SteelPortRepr::StringInput(s) => s.sanitize_pending(at_eof),
-            SteelPortRepr::ChildStdOutput(br) => br.sanitize_pending(at_eof),
-            SteelPortRepr::ChildStdError(br) => br.sanitize_pending(at_eof),
-            SteelPortRepr::DynReader(br) => br.sanitize_pending(at_eof),
-            SteelPortRepr::TcpStream(t) => t.sanitize_pending(at_eof),
-            _ => {}
-        }
-    }
-
     pub fn consume_pending(&mut self, amt: usize) {
         match self {
             SteelPortRepr::FileInput(_, br) | SteelPortRepr::FileInputOutput(_, br) => {
@@ -1236,22 +1209,43 @@ impl SteelPortRepr {
         *self = SteelPortRepr::Closed;
     }
 
+    // A port that is open both ways closes one side at a time, as r7rs asks
+    // of a port like a socket, and what is left is the port for the other side
     pub fn close_output_port(&mut self) -> Result<()> {
-        if self.is_output() {
-            *self = SteelPortRepr::Closed;
-            Ok(())
-        } else {
+        if !self.is_output() {
             stop!(TypeMismatch => "expected output-port?, found {}", self)
         }
+
+        *self = match core::mem::replace(self, SteelPortRepr::Closed) {
+            SteelPortRepr::FileInputOutput(name, reader) => SteelPortRepr::FileInput(name, reader),
+            SteelPortRepr::TcpStream(reader) => SteelPortRepr::DynReader(
+                reader
+                    .map_inner(|tcp| BufReader::new(Box::new(tcp) as Box<dyn Read + Send + Sync>)),
+            ),
+            _ => SteelPortRepr::Closed,
+        };
+
+        Ok(())
     }
 
     pub fn close_input_port(&mut self) -> Result<()> {
-        if self.is_input() {
-            *self = SteelPortRepr::Closed;
-            Ok(())
-        } else {
+        if !self.is_input() {
             stop!(TypeMismatch => "expected input-port?, found {}", self)
         }
+
+        *self = match core::mem::replace(self, SteelPortRepr::Closed) {
+            SteelPortRepr::FileInputOutput(name, mut reader) => {
+                reader.rewind_read_ahead()?;
+
+                SteelPortRepr::FileOutput(name, BufWriter::new(reader.inner.into_inner()))
+            }
+            SteelPortRepr::TcpStream(reader) => {
+                SteelPortRepr::DynWriter(Arc::new(Mutex::new(reader.inner)))
+            }
+            _ => SteelPortRepr::Closed,
+        };
+
+        Ok(())
     }
 
     pub fn write(&mut self, buf: &[u8]) -> Result<()> {
@@ -2811,6 +2805,71 @@ mod port_tests {
     }
 
     #[test]
+    fn closing_the_input_side_leaves_the_output_side() {
+        let temp = TempFile::new("read-write-close-input", b"0123456789");
+        let mut port = read_write(&temp);
+
+        let mut buf = [0; 4];
+        ready(port.read_bytes_amt(&mut buf));
+
+        port.close_input_port().unwrap();
+        assert!(!port.is_input());
+        assert!(port.is_output());
+        assert!(port.close_input_port().is_err());
+
+        port.write(b"ab").unwrap();
+        port.flush().unwrap();
+        assert_eq!(std::fs::read(&temp.path).unwrap(), b"0123ab6789");
+
+        port.close_output_port().unwrap();
+        assert!(matches!(port, SteelPortRepr::Closed));
+    }
+
+    #[test]
+    fn closing_the_output_side_leaves_the_input_side() {
+        let temp = TempFile::new("read-write-close-output", b"0123456789");
+        let mut port = read_write(&temp);
+
+        let mut buf = [0; 4];
+        ready(port.read_bytes_amt(&mut buf));
+
+        port.close_output_port().unwrap();
+        assert!(port.is_input());
+        assert!(!port.is_output());
+        assert!(port.write(b"ab").is_err());
+
+        assert_eq!(ready(port.read_bytes_amt(&mut buf)), 4);
+        assert_eq!(&buf, b"4567");
+
+        port.close_input_port().unwrap();
+        assert!(matches!(port, SteelPortRepr::Closed));
+    }
+
+    #[test]
+    fn a_tcp_port_closes_one_side_at_a_time() {
+        let (client, mut server) = tcp_pair();
+        server.write_all(b"first\nsecond\n").unwrap();
+
+        let mut port = SteelPortRepr::TcpStream(Peekable::new(client.try_clone().unwrap()));
+        assert_eq!(ready(port.read_line()), (6, "first\n".to_string()));
+
+        port.close_output_port().unwrap();
+        assert!(port.write(b"x").is_err());
+        assert_eq!(ready(port.read_line()), (7, "second\n".to_string()));
+
+        let mut port = SteelPortRepr::TcpStream(Peekable::new(client));
+        port.close_input_port().unwrap();
+        assert!(!port.is_input());
+
+        port.write(b"reply\n").unwrap();
+        port.flush().unwrap();
+
+        let mut reply = [0; 6];
+        server.read_exact(&mut reply).unwrap();
+        assert_eq!(&reply, b"reply\n");
+    }
+
+    #[test]
     fn a_write_lands_where_the_reads_left_off() {
         let temp = TempFile::new("read-write-after-read", b"0123456789");
         let mut port = read_write(&temp);
@@ -2947,18 +3006,5 @@ mod port_tests {
         let mut port = SteelPortRepr::FileInput(temp.name(), Peekable::new(BufReader::new(file)));
 
         assert_eq!(ready(port.read_all_str()), (4, "ab\u{fffd}".to_string()));
-    }
-
-    #[test]
-    fn sanitizing_leaves_a_sequence_that_may_still_be_completed() {
-        let mut port = Peekable::new(Cursor::new(b"ab\xe5\x8d".to_vec()));
-
-        assert_eq!(ready(port.fill_chunk(16)), 4);
-
-        port.sanitize_pending(false);
-        assert_eq!(port.pending(), b"ab\xe5\x8d");
-
-        port.sanitize_pending(true);
-        assert_eq!(port.pending(), "ab\u{fffd}".as_bytes());
     }
 }

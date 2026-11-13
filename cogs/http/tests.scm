@@ -137,6 +137,10 @@
  (check-equal? "dot segments are resolved"
                "http://a/x"
                (url->string (url-join "http://a/b/c/d" "../../x")))
+ (check-equal? "an empty segment in a path is kept"
+               (list "http://a/proxy/http://example.com/x" "http://a/a//b" "http://a/b/g//")
+               (map (lambda (reference) (url->string (url-join "http://a/b/c" reference)))
+                    (list "/proxy/http://example.com/x" "/a//b" "g//h/..")))
  (check-equal? "a scheme relative reference keeps the scheme"
                "https://z/q"
                (url->string (url-join "https://a/b" "//z/q")))
@@ -992,6 +996,19 @@
                                                          (range 0 (quotient *max-line-length* 5))))
                                              "\r\n\r\n")
                               hello))
+ (check-equal? "a request line longer than it is allowed is a 400"
+               "HTTP/1.1 400 Bad Request"
+               (answer-status (string-append "GET /"
+                                             (apply string-append
+                                                    (map (lambda (n) "0123456789")
+                                                         (range 0 (quotient *max-line-length* 5))))
+                                             " HTTP/1.1\r\nHost: x\r\n\r\n")
+                              hello))
+ (check-equal? "a client that connects and says nothing does not stop the server"
+               1
+               (let* ([server (http-listen "127.0.0.1:0" #:read-timeout 50)]
+                      [quiet (tcp-connect (server-address server))])
+                 (http-serve-one server hello #:limit 1)))
  (check-equal? "a body that stops early is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nshort" hello))

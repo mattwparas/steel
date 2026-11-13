@@ -85,9 +85,10 @@
       [else line])))
 
 (define (read-request reader writer)
-  (define line (read-request-line reader))
+  (define line (or-bad-request (lambda () (read-request-line reader))))
   (cond
     [(eof-object? line) line]
+    [(problem-report? line) line]
     [else
      (let ([parts (request-line-parts line)])
        (cond

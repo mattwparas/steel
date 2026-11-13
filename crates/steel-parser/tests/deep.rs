@@ -28,7 +28,7 @@ fn nesting_past_the_cap() {
         .stack_size(2 * 1024 * 1024)
         .spawn(|| {
             let text = "'".repeat(MAX_PREFIX_DEPTH as usize + 8) + "a";
-            let mut parser = Parser::new_flat(&text, SourceId::none());
+            let mut parser = Parser::new_incremental(&text, SourceId::none(), false, true);
 
             let err = parser.next().unwrap().unwrap_err();
             assert!(
@@ -36,6 +36,32 @@ fn nesting_past_the_cap() {
                 "expected a syntax error, got {:?}",
                 err
             );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn a_source_file_nests_past_the_cap() {
+    static SOURCES: [(&str, &str); 2] = [("'", ""), ("'(a ", ")")];
+
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let depth = MAX_PREFIX_DEPTH as usize * 4;
+
+            for (open, close) in SOURCES.iter() {
+                let text = open.repeat(depth) + "a" + &close.repeat(depth);
+                let mut parser = Parser::new_flat(&text, SourceId::none());
+
+                assert!(
+                    parser.next().map(|res| res.is_ok()).unwrap_or(false),
+                    "{} nested {:?} did not parse",
+                    depth,
+                    open
+                );
+            }
         })
         .unwrap()
         .join()

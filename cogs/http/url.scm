@@ -257,26 +257,28 @@
 
 (define (remove-dot-segments path)
   (define absolute? (starts-with? path "/"))
-  (define segments (split-many path "/"))
+  (define segments
+    (split-many (if absolute?
+                    (drop-prefix path 1)
+                    path)
+                "/"))
+  ;; An empty segment is part of the path, so `/a//b` keeps both slashes. A dot
+  ;; segment at the end names a directory, which the empty segment after it spells
   (define kept
     (let loop ([rest segments]
                [out '()])
       (cond
         [(empty? rest) (reverse out)]
-        [(or (equal? (car rest) "") (equal? (car rest) ".")) (loop (cdr rest) out)]
-        [(equal? (car rest) "..")
-         (loop (cdr rest)
-               (if (empty? out)
-                   out
-                   (cdr out)))]
+        [(or (equal? (car rest) ".") (equal? (car rest) ".."))
+         (let ([above (if (and (equal? (car rest) "..") (not (empty? out)))
+                          (cdr out)
+                          out)])
+           (loop (cdr rest)
+                 (if (empty? (cdr rest))
+                     (cons "" above)
+                     above)))]
         [else (loop (cdr rest) (cons (car rest) out))])))
-  (define directory?
-    (and (not (empty? segments))
-         (let ([last-segment (list-ref segments (- (length segments) 1))])
-           (or (equal? last-segment "") (equal? last-segment ".") (equal? last-segment "..")))))
-  (string-append (if absolute? "/" "")
-                 (string-join kept "/")
-                 (if (and directory? (not (empty? kept))) "/" "")))
+  (string-append (if absolute? "/" "") (string-join kept "/")))
 
 (define (merge-paths base reference)
   (define cut (last-index-of base #\/))

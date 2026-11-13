@@ -2022,6 +2022,75 @@ impl crate::rvals::Custom for MutableVector {
     }
 }
 
+// The text the reader parses: `pending` with each run of bytes that is not utf8
+// read as U+FFFD. The port keeps the bytes as they arrived, since whatever
+// follows the datum may not be text at all. A sequence that more input could
+// still complete is left off the end.
+fn lossy_text(pending: &[u8], at_eof: bool) -> Cow<'_, str> {
+    let mut text = String::new();
+    let mut rest = pending;
+
+    loop {
+        let err = match core::str::from_utf8(rest) {
+            Ok(valid) if text.is_empty() => return Cow::Borrowed(valid),
+            Ok(valid) => {
+                text.push_str(valid);
+                return Cow::Owned(text);
+            }
+            Err(err) => err,
+        };
+
+        let (valid, bad) = rest.split_at(err.valid_up_to());
+        let valid = core::str::from_utf8(valid).unwrap();
+
+        let len = match err.error_len() {
+            Some(len) => len,
+            None if at_eof => bad.len(),
+            None if text.is_empty() => return Cow::Borrowed(valid),
+            None => {
+                text.push_str(valid);
+                return Cow::Owned(text);
+            }
+        };
+
+        text.push_str(valid);
+        text.push(char::REPLACEMENT_CHARACTER);
+        rest = &bad[len..];
+    }
+}
+
+// Where an offset into `lossy_text` falls in `pending`
+fn raw_offset(pending: &[u8], offset: usize, at_eof: bool) -> usize {
+    let mut raw = 0;
+    let mut text = 0;
+
+    loop {
+        let err = match core::str::from_utf8(&pending[raw..]) {
+            Ok(_) => return usize::min(raw + (offset - text), pending.len()),
+            Err(err) => err,
+        };
+
+        let valid = err.valid_up_to();
+
+        if offset <= text + valid {
+            return raw + (offset - text);
+        }
+
+        let len = match err.error_len() {
+            Some(len) => len,
+            None if at_eof => pending.len() - raw - valid,
+            None => return raw + valid,
+        };
+
+        raw += valid + len;
+        text += valid + char::REPLACEMENT_CHARACTER.len_utf8();
+
+        if offset < text {
+            return raw;
+        }
+    }
+}
+
 enum Attempt {
     Parsed(ExprKind, usize),
     Nothing,
@@ -2040,15 +2109,10 @@ fn attempt_parse(
     let saved = state.take();
     let at_source_start = port.at_source_start();
 
-    port.sanitize_pending(at_eof);
-
     let outcome = {
         let pending = port.pending();
-
-        let text = match core::str::from_utf8(pending) {
-            Ok(text) => text,
-            Err(err) => core::str::from_utf8(&pending[..err.valid_up_to()]).unwrap(),
-        };
+        let text = lossy_text(pending, at_eof);
+        let text: &str = &text;
 
         let hold_back = !at_eof;
 
@@ -2063,14 +2127,14 @@ fn attempt_parse(
         let offset = parser.offset();
 
         match result {
-            Some(Ok(expr)) => Outcome::Parsed(expr, offset),
+            Some(Ok(expr)) => Outcome::Parsed(expr, raw_offset(pending, offset, at_eof)),
             Some(Err(err)) if parser.needs_more_input(&err) => {
                 Outcome::Incomplete(parser.take_state())
             }
             Some(Err(err)) => {
-                let bad = usize::min(usize::max(err.span().end as usize, 1), pending.len());
+                let bad = usize::min(usize::max(err.span().end as usize, 1), text.len());
 
-                Outcome::Bad(err, bad)
+                Outcome::Bad(err, raw_offset(pending, bad, at_eof))
             }
             None => Outcome::Nothing(parser.take_state()),
         }

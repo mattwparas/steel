@@ -1274,7 +1274,9 @@ impl<'a> Parser<'a> {
             owner_base: _,
         } = pending;
 
-        if self.prefix_depth >= MAX_PREFIX_DEPTH {
+        // A source file nests as deep as the stack allows, as it always has. The
+        // reader takes data from anywhere, on any thread, so it gets a bound
+        if self.incremental && self.prefix_depth >= MAX_PREFIX_DEPTH {
             return Err(self.too_deep(span));
         }
 
