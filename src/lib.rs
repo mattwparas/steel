@@ -83,6 +83,9 @@ enum SteelSubcommand {
     #[command(visible_alias = "dl")]
     Dylib,
 
+    /// Show the bytes each key sends, for checking what a terminal does.
+    Keys,
+
     /// Generate Shell completions.
     Completions {
         #[arg(value_enum)]
@@ -427,6 +430,18 @@ lto = true
             #[cfg(target_os = "redox")]
             println!("Creating dylibs is not yet supported on Redox");
 
+            Ok(())
+        }
+
+        SteelCliArgs {
+            default_file: None,
+            action: Some(SteelSubcommand::Keys),
+            ..
+        } => {
+            if let Err(e) = steel_repl::run_keys(&mut vm) {
+                vm.raise_error(e.clone());
+                process::exit(1);
+            }
             Ok(())
         }
 

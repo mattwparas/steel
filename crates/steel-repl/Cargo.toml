@@ -10,13 +10,25 @@ description = "REPL library for steel"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rustyline = { version = "14.0.0", features = ["derive"] }
+rustyline = { version = "14.0.0", features = ["derive"], optional = true }
 colored = "3.0.0"
 steel-core = { workspace = true }
 steel-parser = { path = "../steel-parser", version = "0.8.3" }
 env_home = "0.1.0"
-ctrlc = "3.4.4"
-crossbeam-utils = "0.8.21"
+crossbeam-utils = { version = "0.8.21", optional = true }
+unicode-width = "0.2"
+unicode-segmentation = "1.12"
+
+# The terminal layer (src/terminal.rs)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console"] }
 
 [features]
+default = ["rustyline"]
+# Line editing, history and completion. Without it (or when stdin isn't a
+# terminal, or STEEL_REPL_PLAIN is set) the repl reads plain lines
+rustyline = ["dep:rustyline", "dep:crossbeam-utils"]
 interrupt = ["steel-core/interrupt"]

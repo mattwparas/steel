@@ -1,10 +1,7 @@
-extern crate rustyline;
 use colored::{ColoredString, Colorize};
-use rustyline::history::FileHistory;
-use rustyline::{
-    Cmd, ConditionalEventHandler, Event, EventContext, EventHandler, KeyEvent, RepeatCount,
-};
+use std::time::Duration;
 use steel::compiler::modules::steel_home;
+use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{Custom, SteelString};
 use steel::steel_vm::builtin::BuiltInModule;
 
@@ -14,10 +11,6 @@ use std::fmt::{Debug, Display};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
-
-use rustyline::error::ReadlineError;
-
-use rustyline::{config::Configurer, Editor};
 
 use std::path::{Path, PathBuf};
 use steel::{rvals::SteelVal, steel_vm::register_fn::RegisterFn};
@@ -30,9 +23,8 @@ use std::time::Instant;
 
 use std::env;
 
-use std::fs::File;
-
-use crate::highlight::RustylineHelper;
+use crate::editor::{self, Input, LineEditor};
+use crate::steel_editor::{self, SteelEditor};
 
 fn display_help() {
     println!(
@@ -136,23 +128,146 @@ fn finish_or_interrupt(vm: &mut Engine, line: String) {
     let _ = std::io::stdout().flush();
 }
 
-#[derive(Debug)]
-struct RustyLine(Editor<RustylineHelper, FileHistory>);
-impl Custom for RustyLine {}
+struct LineReader(Box<dyn LineEditor>);
+impl Custom for LineReader {}
 
 #[derive(Debug)]
-#[allow(unused)]
-struct RustyLineError(rustyline::error::ReadlineError);
+enum ReadLineError {
+    Interrupted,
+    Eof,
+    Io(std::io::Error),
+}
 
-impl Custom for RustyLineError {}
-
-impl std::fmt::Display for RustyLineError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+impl Custom for ReadLineError {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(self.to_string()))
     }
 }
 
-impl Error for RustyLineError {}
+impl std::fmt::Display for ReadLineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadLineError::Interrupted => write!(f, "Interrupted"),
+            ReadLineError::Eof => write!(f, "Eof"),
+            ReadLineError::Io(err) => write!(f, "Io({err})"),
+        }
+    }
+}
+
+impl Error for ReadLineError {}
+
+fn io_error(err: std::io::Error) -> SteelErr {
+    SteelErr::new(ErrorKind::Io, err.to_string())
+}
+
+fn tokenize(text: &str) -> Vec<SteelVal> {
+    use steel_parser::lexer::TokenStream;
+    use steel_parser::parser::SourceId;
+    use steel_parser::tokens::TokenType;
+
+    // Spans are in bytes, Steel strings index by char
+    let mut chars_before = vec![0usize; text.len() + 1];
+    let mut count = 0;
+    for (byte, c) in text.char_indices() {
+        for slot in &mut chars_before[byte..byte + c.len_utf8()] {
+            *slot = count;
+        }
+        count += 1;
+    }
+    chars_before[text.len()] = count;
+
+    TokenStream::new(text, true, SourceId::none())
+        .filter_map(Result::ok)
+        .map(|token| {
+            let (kind, span) = match &token.ty {
+                TokenType::OpenParen(_, paren_mod) => {
+                    ("open", TokenType::open_span(token.span, *paren_mod))
+                }
+                TokenType::CloseParen(_) => ("close", token.span),
+                TokenType::If
+                | TokenType::Define
+                | TokenType::Let
+                | TokenType::Lambda
+                | TokenType::Require
+                | TokenType::Begin
+                | TokenType::Set
+                | TokenType::Quote
+                | TokenType::DefineSyntax
+                | TokenType::SyntaxRules => ("form", token.span),
+                TokenType::Identifier(_) => ("identifier", token.span),
+                TokenType::Keyword(_) => ("keyword", token.span),
+                TokenType::StringLiteral(_) => ("string", token.span),
+                TokenType::Number(_) => ("number", token.span),
+                TokenType::CharacterLiteral(_) => ("char", token.span),
+                TokenType::BooleanLiteral(_) => ("boolean", token.span),
+                _ => ("other", token.span),
+            };
+            let start = chars_before[(span.start as usize).min(text.len())];
+            let end = chars_before[(span.end as usize).min(text.len())];
+            SteelVal::ListV(
+                vec![
+                    SteelVal::SymbolV(kind.into()),
+                    SteelVal::IntV(start as isize),
+                    SteelVal::IntV(end as isize),
+                ]
+                .into(),
+            )
+        })
+        .collect()
+}
+
+/// `#%private/steel/terminal`, the primitives the Steel line editor is built on
+pub(crate) fn terminal_module(vm: &mut Engine) {
+    use crate::terminal::{self, Byte};
+
+    let mut module = BuiltInModule::new("#%private/steel/terminal");
+
+    module
+        .register_fn("terminal?", terminal::is_terminal)
+        .register_fn("enable-raw-mode!", || {
+            terminal::enable_raw_mode().map_err(io_error)
+        })
+        .register_fn("disable-raw-mode!", || {
+            terminal::disable_raw_mode().map_err(io_error)
+        })
+        .register_fn("raw-mode?", terminal::is_raw_mode)
+        // A byte, `#f` once `timeout-ms` passes, or eof. `#f` for the timeout
+        // waits forever.
+        .register_fn(
+            "read-byte/timeout",
+            |timeout_ms: Option<usize>| -> Result<SteelVal, SteelErr> {
+                let timeout = timeout_ms.map(|ms| Duration::from_millis(ms as u64));
+                match terminal::read_byte(timeout).map_err(io_error)? {
+                    Byte::Byte(byte) => Ok(SteelVal::IntV(byte as isize)),
+                    Byte::Timeout => Ok(SteelVal::BoolV(false)),
+                    Byte::Eof => Ok(steel::primitives::ports::eof()),
+                }
+            },
+        )
+        // `(columns rows)`, or `#f` when the size can't be found out
+        .register_fn("terminal-size", || {
+            terminal::size().map(|(columns, rows)| vec![columns as isize, rows as isize])
+        })
+        .register_fn("string-display-width", |text: SteelString| {
+            terminal::display_width(text.as_str())
+        })
+        // Whether `text` is a whole form, or the user is still typing one
+        .register_fn("input-complete?", |text: SteelString| {
+            editor::input_complete(text.as_str())
+        })
+        // `(kind start end)` per token, in chars. kind is open, close, form
+        // (define, lambda and the like), identifier, keyword, string, number,
+        // char, boolean or other. Comments are skipped, and so is anything
+        // the lexer rejects.
+        .register_fn("tokenize", |text: SteelString| tokenize(text.as_str()))
+        .register_fn("string-graphemes", |text: SteelString| {
+            terminal::graphemes(text.as_str())
+                .map(|grapheme| grapheme.to_owned())
+                .collect::<Vec<_>>()
+        });
+
+    vm.register_module(module);
+}
 
 pub fn readline_module(vm: &mut Engine) {
     let mut module = steel::steel_vm::builtin::BuiltInModule::new("#%private/steel/readline");
@@ -163,52 +278,22 @@ pub fn readline_module(vm: &mut Engine) {
         })
         .register_fn(
             "#%repl-add-history-entry",
-            |rl: &mut RustyLine, entry: SteelString| rl.0.add_history_entry(entry.as_str()).ok(),
+            |rl: &mut LineReader, entry: SteelString| rl.0.add_history_entry(entry.as_str()),
         )
         .register_fn("#%create-repl", || {
-            let mut rl = Editor::<RustylineHelper, rustyline::history::DefaultHistory>::new()
-                .expect("Unable to instantiate the repl!");
-            rl.set_check_cursor_position(true);
-
-            let history_path = get_default_repl_history_path();
-            if rl.load_history(&history_path).is_err() && File::create(&history_path).is_err() {
-                eprintln!("Unable to create repl history file {:?}", history_path)
-            };
-            RustyLine(rl)
+            LineReader(editor::new_module_editor(&get_default_repl_history_path()))
         })
-        .register_fn("#%read-line", |rl: &mut RustyLine| {
+        .register_fn("#%read-line", |rl: &mut LineReader| {
             let prompt = format!("{}", "λ > ".bright_green().bold().italic());
-            rl.0.readline(&prompt).map_err(RustyLineError)
+            match rl.0.read_line(&prompt) {
+                Ok(Input::Line(line)) => Ok(line),
+                Ok(Input::Interrupted) => Err(ReadLineError::Interrupted),
+                Ok(Input::Eof) => Err(ReadLineError::Eof),
+                Err(err) => Err(ReadLineError::Io(err)),
+            }
         });
 
     vm.register_module(module);
-}
-
-struct CtrlCHandler {
-    close_on_interrupt: Arc<AtomicBool>,
-    empty_line_cancelled: AtomicBool,
-}
-
-impl CtrlCHandler {
-    fn new(close_on_interrupt: Arc<AtomicBool>) -> Self {
-        CtrlCHandler {
-            close_on_interrupt,
-            empty_line_cancelled: AtomicBool::new(false),
-        }
-    }
-}
-
-impl ConditionalEventHandler for CtrlCHandler {
-    fn handle(&self, _: &Event, _: RepeatCount, _: bool, ctx: &EventContext) -> Option<Cmd> {
-        if !ctx.line().is_empty() {
-            // if the line is not empty, reset the PREVIOUS_LINE_CANCELLED state
-            self.empty_line_cancelled.store(false, Ordering::Release);
-        } else if self.empty_line_cancelled.swap(true, Ordering::Release) {
-            self.close_on_interrupt.store(true, Ordering::Release);
-        }
-
-        Some(Cmd::Interrupt)
-    }
 }
 
 pub struct Repl<S: Display, P: AsRef<Path> + Debug> {
@@ -257,20 +342,11 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
         #[cfg(not(target_os = "windows"))]
         let mut prompt = format!("{}", "λ > ".bright_green().bold().italic());
 
-        let mut rl = Editor::<RustylineHelper, rustyline::history::DefaultHistory>::new()
-            .expect("Unable to instantiate the repl!");
-        rl.set_check_cursor_position(true);
-
-        // Load repl history
         let history_path: Cow<Path> = self
             .history_path
             .as_ref()
             .map(|p| Cow::Borrowed(p.as_ref()))
             .unwrap_or_else(|| Cow::Owned(get_default_repl_history_path()));
-
-        if rl.load_history(&history_path).is_err() && File::create(&history_path).is_err() {
-            eprintln!("Unable to create repl history file {:?}", history_path)
-        };
 
         let current_dir = std::env::current_dir()?;
 
@@ -296,23 +372,43 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
 
         let globals = Arc::new(Mutex::new(self.vm.globals().iter().copied().collect()));
 
-        rl.set_helper(Some(RustylineHelper::new(globals.clone())));
+        // Ctrl-C while code runs interrupts it. Where there's no such event
+        // (Hermit) it just doesn't.
+        let interrupt_safepoint = safepoint.clone();
+        let _ = crate::terminal::install_interrupt_handler(move || {
+            interrupt_safepoint.clone().interrupt();
+        });
 
-        let safepoint = safepoint.clone();
-        let ctrlc_safepoint = safepoint.clone();
+        let close_on_interrupt = Arc::new(AtomicBool::new(false));
 
-        ctrlc::set_handler(move || {
-            ctrlc_safepoint.clone().interrupt();
-        })
-        .unwrap();
+        let mut steel_editor = None;
+        if steel_editor::requested() && crate::terminal::is_terminal() {
+            match SteelEditor::new(
+                &mut self.vm,
+                &history_path,
+                globals.clone(),
+                safepoint.clone(),
+                close_on_interrupt.clone(),
+            ) {
+                Ok(editor) => steel_editor = Some(editor),
+                Err(err) => {
+                    eprintln!("The Steel line editor didn't start, reading plain lines instead:");
+                    self.vm.raise_error(err);
+                }
+            }
+        }
 
         let clear_interrupted = move || {
             safepoint.resume();
         };
 
-        let close_on_interrupt = Arc::new(AtomicBool::new(false));
-        let ctrlc = Box::new(CtrlCHandler::new(close_on_interrupt.clone()));
-        rl.bind_sequence(KeyEvent::ctrl('c'), EventHandler::Conditional(ctrlc));
+        // Not rustyline next to the Steel editor: saving its history at exit
+        // would drop what the Steel editor appended
+        let mut rl: Box<dyn LineEditor> = if steel_editor.is_some() {
+            Box::new(editor::PlainEditor)
+        } else {
+            editor::new_editor(&history_path, globals.clone(), close_on_interrupt.clone())
+        };
 
         while rx.try_recv().is_err() {
             // Update globals for highlighting
@@ -328,11 +424,24 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
                 }
             }
 
-            let readline = self.vm.enter_safepoint(|| rl.readline(&prompt));
+            let readline = match steel_editor
+                .as_mut()
+                .map(|editor| editor.read_line(&mut self.vm, &prompt))
+            {
+                Some(Ok(input)) => Ok(input),
+                Some(Err(err)) => {
+                    // The editor may have stopped mid-line
+                    eprintln!("\r\nThe Steel line editor failed, reading plain lines from now on:");
+                    self.vm.raise_error(err);
+                    steel_editor = None;
+                    self.vm.enter_safepoint(|| rl.read_line(&prompt))
+                }
+                None => self.vm.enter_safepoint(|| rl.read_line(&prompt)),
+            };
 
             match readline {
-                Ok(line) => {
-                    rl.add_history_entry(line.as_str()).ok();
+                Ok(Input::Line(line)) => {
+                    rl.add_history_entry(line.as_str());
                     match line.as_str().trim() {
                         ":q" | ":quit" => return Ok(()),
                         ":time" => {
@@ -390,7 +499,7 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
                         }
                     }
                 }
-                Err(ReadlineError::Interrupted) => {
+                Ok(Input::Interrupted) => {
                     if close_on_interrupt.load(Ordering::Acquire) {
                         break;
                     } else {
@@ -398,7 +507,7 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
                         continue;
                     }
                 }
-                Err(ReadlineError::Eof) => {
+                Ok(Input::Eof) => {
                     println!("CTRL-D");
                     break;
                 }

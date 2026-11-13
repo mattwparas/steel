@@ -13,7 +13,7 @@ use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::Helper;
 use rustyline::{hint::Hinter, Context};
 
-use steel_parser::lexer::{TokenError, TokenStream};
+use steel_parser::lexer::TokenStream;
 
 use rustyline::completion::Completer;
 use rustyline::completion::Pair;
@@ -115,44 +115,10 @@ impl Completer for RustylineHelper {
 
 impl Validator for RustylineHelper {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
-        use steel_parser::tokens::TokenType;
-
-        let token_stream = TokenStream::new(ctx.input(), true, SourceId::none());
-
-        let mut balance = 0;
-
-        let mut unfinished = false;
-
-        for token in token_stream {
-            let token = match token {
-                Ok(token) => token,
-                Err(err) => {
-                    unfinished = std::matches!(
-                        err.ty,
-                        TokenError::IncompleteString
-                            | TokenError::IncompleteIdentifier
-                            | TokenError::IncompleteComment
-                    );
-
-                    break;
-                }
-            };
-
-            match token.ty {
-                TokenType::OpenParen(..) => {
-                    balance += 1;
-                }
-                TokenType::CloseParen(_) => {
-                    balance -= 1;
-                }
-                _ => {}
-            }
-        }
-
-        if balance > 0 || unfinished {
-            Ok(ValidationResult::Incomplete)
-        } else {
+        if crate::editor::input_complete(ctx.input()) {
             Ok(ValidationResult::Valid(None))
+        } else {
+            Ok(ValidationResult::Incomplete)
         }
     }
 }
