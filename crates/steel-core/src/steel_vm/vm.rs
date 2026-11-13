@@ -811,7 +811,11 @@ impl Synchronizer {
                         // If the thread was spawned via the make_thread function,
                         // then we need to check if that thread is even running to begin with.
 
-                        // println!("Waiting for thread...")
+                        // Let the thread run to its safepoint. A scheduler that
+                        // doesn't preempt (Hermit) would never get it there
+                        // while this spins; on one core Linux only does once
+                        // the spinning thread's time slice runs out.
+                        std::thread::yield_now();
                     }
                 }
             } else {
@@ -857,6 +861,9 @@ impl Synchronizer {
                                 }
                             }
                         }
+
+                        // Let the thread run to its safepoint, as above
+                        std::thread::yield_now();
                     }
                 } else {
                     break 'inner;
