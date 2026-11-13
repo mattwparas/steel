@@ -3,8 +3,6 @@
 extern crate alloc;
 
 pub mod ast;
-#[doc(hidden)]
-pub mod compare;
 pub mod interner;
 pub mod lexer;
 pub mod parser;

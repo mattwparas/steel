@@ -1,7 +1,10 @@
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
-use steel_parser::compare::{check, one_shot, relex_ratio};
 use steel_parser::parser::{Parser, SourceId};
+
+mod common;
+
+use common::compare::{check, one_shot, relex_ratio};
 
 fn atom_strategy() -> impl Strategy<Value = String> {
     prop_oneof![

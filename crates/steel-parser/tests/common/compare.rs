@@ -1,8 +1,5 @@
-use alloc::format;
-use alloc::string::{String, ToString};
-
-use crate::ast::ExprKind;
-use crate::parser::{Parser, ParserState, SourceId};
+use steel_parser::ast::ExprKind;
+use steel_parser::parser::{Parser, ParserState, SourceId};
 
 fn strip(input: String, prefix: &str) -> String {
     let mut out = String::with_capacity(input.len());
@@ -33,7 +30,7 @@ fn render(expr: &ExprKind) -> String {
     normalize(format!("{} | {:?}", expr, expr))
 }
 
-fn show(result: Option<crate::parser::Result<ExprKind>>) -> String {
+fn show(result: Option<steel_parser::parser::Result<ExprKind>>) -> String {
     match result {
         Some(Ok(expr)) => render(&expr),
         Some(Err(err)) => normalize(format!("ERR({:?})", err)),

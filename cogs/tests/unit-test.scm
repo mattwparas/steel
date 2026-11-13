@@ -66,15 +66,15 @@
                    (test name input expected))]))
 
 ;; Check the equality, and otherwise do some nice printing of the result
-(define (test name input expected)
-  (if (equal? input expected)
+(define (test name expected found)
+  (if (equal? expected found)
       (begin
         (mark-success)
         (print-success name))
       (begin
         (mark-failed name)
         (print-failure name)
-        (displayln "    Expected: " expected ", Found " input))))
+        (displayln "    Expected: " expected ", Found " found))))
 
 (define-syntax test-module
   (syntax-rules ()

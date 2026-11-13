@@ -1,5 +1,8 @@
-use steel_parser::compare::{check, relex_ratio};
 use steel_parser::parser::{Parser, ParserState, SourceId};
+
+mod common;
+
+use common::compare::{check, relex_ratio};
 
 fn programs() -> impl Iterator<Item = &'static str> {
     static PROGRAMS: &[&str] = &[
