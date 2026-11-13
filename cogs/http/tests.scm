@@ -267,6 +267,17 @@
                "11"
                (response-header (reply-to (list *chunked*) (lambda () (http-get "http://x/")))
                                 "x-sum"))
+ (check-equal?
+  "a trailer does not stand in for a field of the head"
+  (list #f #f "t")
+  (let ([response
+         (reply-to
+          (list (string-append "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+                               "0\r\nLocation: http://y/\r\nSet-Cookie: a=b\r\nX-Trailer: t\r\n\r\n"))
+          (lambda () (http-get "http://x/")))])
+    (list (response-header response "Location")
+          (response-header response "Set-Cookie")
+          (response-header response "X-Trailer"))))
  (check-equal? "a body with no length is read until the connection closes"
                "no length here"
                (response-text (reply-to (list "HTTP/1.1 200 OK\r\n\r\nno length here")
@@ -865,6 +876,9 @@
  (check-equal? "the reason phrase comes from the code when it is not given"
                "HTTP/1.1 404 Not Found"
                (answer-status *get* (lambda (sent) (make-response 404))))
+ (check-equal? "a reason phrase with a newline in it is a 500, not another header"
+               "HTTP/1.1 500 Internal Server Error"
+               (answer-status *get* (lambda (sent) (make-response 200 #:reason "OK\r\nX: y"))))
  (check-equal? "a reason phrase may be given instead"
                "HTTP/1.1 404 Nothing Here"
                (answer-status *get* (lambda (sent) (make-response 404 #:reason "Nothing Here"))))
@@ -1018,6 +1032,31 @@
  (check-equal? "a request this server cannot read is the last one on the connection"
                #t
                (string-contains? (answer "nonsense\r\n\r\n" hello) "Connection: close"))
+ (check-equal? "a space before the colon of a header is a 400, rather than a field unseen"
+               (list 1 "HTTP/1.1 400 Bad Request")
+               (let ([served (over-ports (string-append "POST /a HTTP/1.1\r\nHost: x\r\n"
+                                                        "Content-Length : 5\r\n\r\n"
+                                                        "helloGET /b HTTP/1.1\r\nHost: x\r\n\r\n")
+                                         hello)])
+                 (list (car served) (car (split-many (cdr served) "\r\n")))))
+ (check-equal? "a method that is not a token is a 400"
+               (list "HTTP/1.1 400 Bad Request" "HTTP/1.1 400 Bad Request")
+               (list (answer-status " /a HTTP/1.1\r\nHost: x\r\n\r\n" hello)
+                     (answer-status "G(T /a HTTP/1.1\r\nHost: x\r\n\r\n" hello)))
+ (check-equal? "a Host that holds more than an authority is a 400, rather than part of the path"
+               "HTTP/1.1 400 Bad Request"
+               (answer-status "GET /a HTTP/1.1\r\nHost: x/b?c\r\n\r\n" hello))
+ (check-equal?
+  "a trailer does not reframe or reroute the request"
+  (list '("x") '() '("t"))
+  (let ([sent (http-read-request
+               (open-input-string
+                (string-append "POST /a HTTP/1.1\r\nHost: x\r\n"
+                               "Transfer-Encoding: chunked\r\n\r\n"
+                               "0\r\nHost: y\r\ncontent-length: 9\r\nX-Trailer: t\r\n\r\n")))])
+    (list (request-header* sent "Host")
+          (request-header* sent "Content-Length")
+          (request-header* sent "X-Trailer"))))
  (check-equal? "a target that is neither a path nor a url is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "GET notapath HTTP/1.1\r\nHost: x\r\n\r\n" hello))

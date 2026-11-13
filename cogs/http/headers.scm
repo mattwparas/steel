@@ -133,6 +133,8 @@
 ;; Parses one header line into a trimmed `(name . value)` pair, or `#false`.
 (define (parse-header-line line)
   (define split (split-once line ":"))
-  (if (or (not (list? split)) (equal? (car split) ""))
-      #f
-      (cons (car split) (trim (list-ref split 1)))))
+  ;; A name that is not a token, like one with a space before the colon, would
+  ;; be a field this side does not see and the next hop might
+  (if (and (list? split) (token? (car split)))
+      (cons (car split) (trim (list-ref split 1)))
+      #f))

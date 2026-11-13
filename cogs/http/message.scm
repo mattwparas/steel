@@ -39,7 +39,8 @@
          read-wire-headers
          read-exactly
          read-until-close
-         read-chunked)
+         read-chunked
+         usable-trailers)
 
 ;;@doc
 ;; The version written on every request line and status line
@@ -245,6 +246,8 @@
                        #:version [version *http-version*])
   (unless (and (int? status) (>= status 100) (< status 1000))
     (error "http: not a usable status code:" status))
+  (when (and reason (or (string-contains? reason "\r") (string-contains? reason "\n")))
+    (error "http: a reason phrase cannot contain a newline:" reason))
   (response version
             status
             (or reason (reason-phrase status))
@@ -362,6 +365,43 @@
   (unless (and (int? size) (>= size 0))
     (error "http: not a usable chunk size:" line))
   size)
+
+(define *head-only-fields*
+  (map string-downcase
+       (list "Host"
+             "Content-Length"
+             "Transfer-Encoding"
+             "Trailer"
+             "Connection"
+             "TE"
+             "Expect"
+             "Max-Forwards"
+             "Cache-Control"
+             "Pragma"
+             "Range"
+             "Content-Type"
+             "Content-Encoding"
+             "Content-Range"
+             "Authorization"
+             "Proxy-Authorization"
+             "Cookie"
+             "Set-Cookie"
+             "WWW-Authenticate"
+             "Proxy-Authenticate"
+             "Location"
+             "Age"
+             "Date"
+             "Expires"
+             "Retry-After"
+             "Vary")))
+
+;; A trailer arrives after the message was framed and routed by its head, so
+;; a field that does either of those, or that says who is asking, is dropped
+(define (usable-trailers trailers)
+  (filter (lambda (entry)
+            (define name (string-downcase (car entry)))
+            (not (or (starts-with? name "if-") (member name *head-only-fields*))))
+          trailers))
 
 ;;@doc
 ;; Reads a chunked body off `reader`, and returns it with its trailer headers.

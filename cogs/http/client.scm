@@ -235,7 +235,7 @@
   (response (car status-line)
             status
             (list-ref status-line 2)
-            (append headers (cdr body-and-trailers))
+            (append headers (usable-trailers (cdr body-and-trailers)))
             (car body-and-trailers)))
 
 ;;@doc

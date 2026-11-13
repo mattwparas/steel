@@ -1,4 +1,5 @@
 (require-builtin steel/tcp)
+(require "chars.scm")
 (require "url.scm")
 (require "headers.scm")
 (require "message.scm")
@@ -38,8 +39,14 @@
   (define parts (split-many line " "))
   (if (equal? (length parts) 3) parts #f))
 
+(define (host-char? char)
+  (not (string-contains? "/?#@" char)))
+
 (define (target->url target host)
   (cond
+    ;; The host is spliced in front of the target, so one that holds more than
+    ;; an authority would move the path
+    [(and host (not (every-char? host host-char?))) #f]
     [(equal? target "*") (make-url (or host "") #:path "*")]
     [(string-contains? target "://") (parse-url target)]
     [(not (starts-with? target "/")) #f]
@@ -93,6 +100,7 @@
      (let ([parts (request-line-parts line)])
        (cond
          [(not parts) (problem-report 400 "not a request line")]
+         [(not (token? (car parts))) (problem-report 400 "not a usable method")]
          [(not (known-version? (list-ref parts 2)))
           (problem-report 505 (string-append "this server speaks HTTP/1.1, not " (list-ref parts 2)))]
          [else (read-request-headers reader writer parts)]))]))
@@ -142,7 +150,7 @@
          [else
           (request (string-upcase (car parts))
                    url
-                   (append headers (cdr body-and-trailers))
+                   (append headers (usable-trailers (cdr body-and-trailers)))
                    (car body-and-trailers)
                    (list-ref parts 2))]))]))
 

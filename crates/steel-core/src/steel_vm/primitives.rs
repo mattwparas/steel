@@ -2165,47 +2165,50 @@ enum Outcome {
 }
 
 fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
-    let mut at_eof = false;
-    let mut state = port.port.write().take_parse_state();
+    let expr = {
+        // One reader holds the port from the first byte of a datum to its last,
+        // so another thread reading the same port gets the datum after it
+        let mut guard = port.port.write();
+        let mut at_eof = false;
+        let mut state = guard.take_parse_state();
 
-    loop {
-        let attempt = attempt_parse(&mut port.port.write(), &mut state, at_eof)?;
+        loop {
+            let attempt = attempt_parse(&mut guard, &mut state, at_eof)?;
 
-        match attempt {
-            Attempt::Parsed(expr, consumed) => {
-                port.port.write().consume_pending(consumed);
-                return finisher(expr);
-            }
-            Attempt::Nothing | Attempt::Incomplete => {
-                if at_eof {
-                    let mut guard = port.port.write();
-                    let len = guard.pending().len();
-                    guard.consume_pending(len);
-                    drop(guard);
-
-                    return match attempt {
-                        Attempt::Nothing => Ok(eof()),
-                        Attempt::Incomplete => {
-                            stop!(Generic => "read: unexpected eof while reading datum")
-                        }
-                        Attempt::Parsed(..) => unreachable!("handled above"),
-                    };
+            match attempt {
+                Attempt::Parsed(expr, consumed) => {
+                    guard.consume_pending(consumed);
+                    break expr;
                 }
+                Attempt::Nothing | Attempt::Incomplete => {
+                    if at_eof {
+                        let len = guard.pending().len();
+                        guard.consume_pending(len);
 
-                let filled = port.port.write().fill_more()?;
+                        return match attempt {
+                            Attempt::Nothing => Ok(eof()),
+                            Attempt::Incomplete => {
+                                stop!(Generic => "read: unexpected eof while reading datum")
+                            }
+                            Attempt::Parsed(..) => unreachable!("handled above"),
+                        };
+                    }
 
-                match filled {
-                    MaybeBlocking::Nonblocking(0) => at_eof = true,
-                    MaybeBlocking::Nonblocking(_) => {}
-                    MaybeBlocking::WouldBlock => {
-                        port.port.write().save_parse_state(state.take());
+                    match guard.fill_more()? {
+                        MaybeBlocking::Nonblocking(0) => at_eof = true,
+                        MaybeBlocking::Nonblocking(_) => {}
+                        MaybeBlocking::WouldBlock => {
+                            guard.save_parse_state(state.take());
 
-                        return Ok(would_block_object());
+                            return Ok(would_block_object());
+                        }
                     }
                 }
             }
         }
-    }
+    };
+
+    finisher(expr)
 }
 
 #[steel_derive::function(name = "reader-read-one")]
