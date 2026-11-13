@@ -1,5 +1,6 @@
 (require "common.scm")
-(require "mutable-lists.scm")
+;; mutable-strings.scm provides the list->string these use
+(require (except-in "mutable-lists.scm" list->string))
 (require "mutable-strings.scm")
 
 ;;; Needed for R7RS.

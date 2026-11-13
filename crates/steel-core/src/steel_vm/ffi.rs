@@ -1,5 +1,6 @@
 #![allow(non_local_definitions)]
 
+use core::{alloc::Layout, sync::atomic::AtomicPtr};
 use std::{
     borrow::Cow,
     io::BufReader,
@@ -1279,6 +1280,41 @@ impl<'a> PartialEq for FFIArg<'a> {
 }
 
 impl<'a> Eq for FFIArg<'a> {}
+
+struct OpaquePointer {
+    value: AtomicPtr<u8>,
+}
+
+impl Custom for OpaquePointer {}
+
+// TODO:
+// Malloc typically refers to a special heap allocated pointer.
+// However, we can return it in the unboxed integer field
+// and just treat it as a pointer for the purposes of reducing
+// an allocation.
+//
+// Meaning, we should be able to just return an unboxed integer
+// when JIT compiling things.
+#[steel_derive::function(name = "malloc", arity = Exact(1))]
+fn malloc(size: usize) -> OpaquePointer {
+    unsafe {
+        let pointer = std::alloc::alloc(Layout::from_size_align(size, 8).unwrap());
+        OpaquePointer {
+            value: AtomicPtr::new(pointer),
+        }
+    }
+}
+
+// Library for native pointer business. Will be eventually used
+// for bootstrapping the runtime for self hosting?
+#[steel_derive::define_module(name = "steel/unsafe/ffi")]
+pub fn unsafe_ffi_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/unsafe/ffi");
+
+    module.register_native_fn_definition(MALLOC_DEFINITION);
+
+    module
+}
 
 #[steel_derive::define_module(name = "steel/ffi")]
 pub fn ffi_module() -> BuiltInModule {

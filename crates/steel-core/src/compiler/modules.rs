@@ -4745,22 +4745,30 @@ impl<'a> ModuleBuilder<'a> {
         own: &FxHashSet<InternedString>,
     ) -> Result<()> {
         let mut imports = FxHashMap::default();
+        // The prelude is like a module's language: a require can shadow what
+        // it provides, two requires can't disagree
+        let in_prelude = |module: InternedString| PRELUDE_MODULES.contains(&module.resolve());
         for require_object in requires.iter().filter(|x| !x.for_syntax) {
             let path = require_object.path.get_path();
             let Some(module) = self.compiled_modules.compiled_modules.get(path.as_ref()) else {
                 continue;
             };
             let from: InternedString = module.name.to_string_lossy().as_ref().into();
+            let prelude = in_prelude(from);
             for (local, original) in imported_names(require_object, module) {
                 let binding = (from, original);
                 if let Some(&existing) = imported.get(&local) {
+                    let shadows_prelude = in_prelude(existing.0) && !prelude;
+                    if prelude && !in_prelude(existing.0) {
+                        continue;
+                    }
                     let defined = |(module, name)| {
                         crate::parser::expand_visitor::defining_binding(module, name)
                     };
                     let different = defined(existing)
                         .zip(defined(binding))
                         .is_some_and(|(a, b)| a != b);
-                    if different && !own.contains(&local) {
+                    if different && !own.contains(&local) && !shadows_prelude {
                         stop!(BadSyntax => format!("identifier imported twice with different bindings: {local}"); require_object.span);
                     }
                 }

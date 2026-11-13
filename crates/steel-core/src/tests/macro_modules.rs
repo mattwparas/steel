@@ -3070,6 +3070,42 @@ fn a_name_imported_from_two_modules_is_an_error() {
 }
 
 #[test]
+fn a_require_shadows_the_prelude() {
+    let mut engine = engine();
+    engine.register_steel_module(
+        "shadow/map".to_owned(),
+        "(provide map) (define (map f xs) 'mine)".to_owned(),
+    );
+    engine.register_steel_module(
+        "shadow/map2".to_owned(),
+        "(provide map) (define (map f xs) 'other)".to_owned(),
+    );
+    engine.register_steel_module(
+        "shadow/user".to_owned(),
+        r#"(require "shadow/map") (provide x) (define x (map 1 2))"#.to_owned(),
+    );
+    assert_eq!(
+        last(
+            &mut engine,
+            r#"(require (prefix-in u: "shadow/user")) (list u:x (map add1 '(1)))"#
+        )
+        .to_string(),
+        "(mine (2))"
+    );
+
+    // Two requires still can't disagree
+    engine.register_steel_module(
+        "shadow/both".to_owned(),
+        r#"(require "shadow/map") (require "shadow/map2") (provide y) (define y (map 1 2))"#
+            .to_owned(),
+    );
+    let err = engine
+        .compile_and_run_raw_program(r#"(require "shadow/both")"#)
+        .unwrap_err();
+    assert!(err.to_string().contains("imported twice"), "{err}");
+}
+
+#[test]
 fn requires_are_handled_in_module_order() {
     let mut engine = engine();
     engine.register_steel_module(
