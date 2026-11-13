@@ -1,4 +1,5 @@
 (require-builtin steel/tcp)
+(require "chars.scm")
 (require "url.scm")
 (require "headers.scm")
 (require "message.scm")
@@ -166,10 +167,12 @@
   (unless (list? after-version)
     (error "http: a response did not start with a status line:" line))
   (define after-code (split-once (list-ref after-version 1) " "))
+  (define digits
+    (trim (if (list? after-code)
+              (car after-code)
+              (list-ref after-version 1))))
   (define code
-    (string->number (trim (if (list? after-code)
-                              (car after-code)
-                              (list-ref after-version 1)))))
+    (and (equal? (string-length digits) 3) (every-char? digits char-digit?) (string->number digits)))
   (unless (known-version? (car after-version))
     (error "http: a response spoke" (car after-version) "- this client speaks HTTP/1.1"))
   (unless (and (int? code) (>= code 100) (< code 1000))

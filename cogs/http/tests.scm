@@ -255,6 +255,17 @@
                "text/plain"
                (response-header (reply-to (list *ok*) (lambda () (http-get "http://x/")))
                                 "content-type"))
+ (check-equal?
+  "a status code is three digits, and nothing a number reader would also take"
+  (list #t #t)
+  (map (lambda (code)
+         (with-handler
+          (lambda (err) #t)
+          (begin
+            (http-read-response
+             (open-input-string (string-append "HTTP/1.1 " code " OK\r\nContent-Length: 0\r\n\r\n")))
+            #f)))
+       (list "#xc8" "+200")))
  (check-equal? "a reason phrase may be missing"
                (list 200 "")
                (let ([response (reply-to (list "HTTP/1.1 200\r\nContent-Length: 0\r\n\r\n")
@@ -1023,6 +1034,33 @@
                (let* ([server (http-listen "127.0.0.1:0" #:read-timeout 50)]
                       [quiet (tcp-connect (server-address server))])
                  (http-serve-one server hello #:limit 1)))
+ (check-equal? "a client that says nothing is told it ran out of time"
+               "HTTP/1.1 408 Request Timeout"
+               (let* ([server (http-listen "127.0.0.1:0" #:read-timeout 50)]
+                      [quiet (tcp-connect (server-address server))])
+                 (http-serve-one server hello #:limit 1)
+                 (trim (read-line (tcp-stream-buffered-reader quiet)))))
+ (check-equal? "a request that stops part way through its head is told the same"
+               "HTTP/1.1 408 Request Timeout"
+               (let* ([server (http-listen "127.0.0.1:0" #:read-timeout 50)]
+                      [slow (tcp-connect (server-address server))]
+                      [writer (tcp-stream-writer slow)])
+                 (write-string "GET /a HTTP/1.1\r\nHost: x\r\n" writer)
+                 (flush-output-port writer)
+                 (http-serve-one server hello #:limit 1)
+                 (trim (read-line (tcp-stream-buffered-reader slow)))))
+ (check-equal? "a read timeout that is not one is refused when the server is made"
+               (list #t #t)
+               (map (lambda (timeout)
+                      (with-handler (lambda (err) #t)
+                                    (begin
+                                      (http-listen "127.0.0.1:0" #:read-timeout timeout)
+                                      #f)))
+                    (list 0 "soon")))
+ (check-equal? "a bare carriage return or a nul in a header value is a 400"
+               (list "HTTP/1.1 400 Bad Request" "HTTP/1.1 400 Bad Request")
+               (list (answer-status "GET /a HTTP/1.1\r\nHost: x\r\nX: a\rb\r\n\r\n" hello)
+                     (answer-status "GET /a HTTP/1.1\r\nHost: x\r\nX: a\0b\r\n\r\n" hello)))
  (check-equal? "a body that stops early is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nshort" hello))

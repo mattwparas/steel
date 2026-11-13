@@ -32,6 +32,8 @@
 ;;@doc
 ;; Binds a listener. A port of `0` takes a free port from the os.
 (define (http-listen address #:read-timeout [read-timeout #f])
+  (unless (or (not read-timeout) (and (int? read-timeout) (> read-timeout 0)))
+    (error "http: a read timeout is a positive number of milliseconds or #false, got:" read-timeout))
   (define listener (tcp-listen address))
   (server listener (tcp-listener-local-addr listener) read-timeout))
 
@@ -77,7 +79,9 @@
     [else 'none]))
 
 (define (or-bad-request thunk)
-  (with-handler (lambda (err) (problem-report 400 (trim (to-string (error-object-message err)))))
+  (with-handler (lambda (err)
+                  (problem-report (if (would-block-error? err) 408 400)
+                                  (trim (to-string (error-object-message err)))))
                 (thunk)))
 
 (define (expects-continue? headers)

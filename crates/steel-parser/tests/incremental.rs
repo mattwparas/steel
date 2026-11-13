@@ -235,3 +235,34 @@ fn the_reader_hands_back_the_datum_instead() {
         assert_eq!(drain(DOC_COMMENTED, chunk), expected, "chunk {}", chunk);
     }
 }
+
+fn suspended(input: &str) -> ParserState {
+    let mut parser = Parser::new_incremental(input, SourceId::none(), true, true);
+
+    assert!(parser.next().is_none_or(|result| result.is_err()));
+
+    parser.take_state().unwrap()
+}
+
+#[test]
+fn a_string_cut_short_waits_for_its_closing_quote() {
+    static ARRIVALS: [(&str, &str, bool); 7] = [
+        ("(a \"bc", "de (f) ; g", false),
+        ("(a \"bc", "de\" f)", true),
+        ("(a \"bc", "de\\\" f", false),
+        ("(a \"bc\\", "\" f", false),
+        ("(a \"bc\\\\", "\" f", true),
+        ("(a \"bc", "\\\\\\\" \\\\\" f", true),
+        ("(a bc", "de", true),
+    ];
+
+    for (first, second, advances) in ARRIVALS {
+        let whole = format!("{first}{second}");
+
+        assert_eq!(
+            suspended(first).could_advance(whole.as_bytes(), first.len()),
+            advances,
+            "{first:?} then {second:?}"
+        );
+    }
+}

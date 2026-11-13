@@ -39,11 +39,15 @@
 (define (token? str)
   (and (not (equal? str "")) (every-char? str token-char?)))
 
+(define (field-value? value)
+  (not
+   (or (string-contains? value "\r") (string-contains? value "\n") (string-contains? value "\0"))))
+
 (define (check-header name value)
   (unless (token? name)
     (error "http: not a usable header name:" name))
-  (when (or (string-contains? value "\r") (string-contains? value "\n"))
-    (error "http: a header value cannot contain a newline:" value))
+  (unless (field-value? value)
+    (error "http: a header value cannot contain a newline or a nul:" value))
   (cons name value))
 
 ;;@doc
@@ -135,6 +139,6 @@
   (define split (split-once line ":"))
   ;; A name that is not a token, like one with a space before the colon, would
   ;; be a field this side does not see and the next hop might
-  (if (and (list? split) (token? (car split)))
+  (if (and (list? split) (token? (car split)) (field-value? (list-ref split 1)))
       (cons (car split) (trim (list-ref split 1)))
       #f))

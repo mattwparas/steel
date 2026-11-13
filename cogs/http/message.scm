@@ -40,7 +40,8 @@
          read-exactly
          read-until-close
          read-chunked
-         usable-trailers)
+         usable-trailers
+         would-block-error?)
 
 ;;@doc
 ;; The version written on every request line and status line
@@ -259,8 +260,16 @@
       (substring line 0 (- (string-length line) 1))
       line))
 
+(define *would-block-message*
+  "http: this read would block - the port is non blocking, or its read timeout ran out")
+
 (define (would-block-error)
-  (error "http: this read would block - the port is non blocking, or its read timeout ran out"))
+  (error *would-block-message*))
+
+;;@doc
+;; Whether `err` was raised by a read that ran out of time
+(define (would-block-error? err)
+  (equal? (trim (to-string (error-object-message err))) *would-block-message*))
 
 (define (line-so-far chars)
   (strip-cr (list->string (reverse chars))))

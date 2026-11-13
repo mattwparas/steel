@@ -2194,13 +2194,28 @@ fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> R
                         };
                     }
 
-                    match guard.fill_more()? {
-                        MaybeBlocking::Nonblocking(0) => at_eof = true,
-                        MaybeBlocking::Nonblocking(_) => {}
-                        MaybeBlocking::WouldBlock => {
-                            guard.save_parse_state(state.take());
+                    loop {
+                        let seen = guard.pending().len();
 
-                            return Ok(would_block_object());
+                        match guard.fill_more()? {
+                            MaybeBlocking::Nonblocking(0) => {
+                                at_eof = true;
+                                break;
+                            }
+                            MaybeBlocking::Nonblocking(_) => {
+                                let stuck = state.as_ref().is_some_and(|state| {
+                                    !state.could_advance(guard.pending(), seen)
+                                });
+
+                                if !stuck {
+                                    break;
+                                }
+                            }
+                            MaybeBlocking::WouldBlock => {
+                                guard.save_parse_state(state.take());
+
+                                return Ok(would_block_object());
+                            }
                         }
                     }
                 }

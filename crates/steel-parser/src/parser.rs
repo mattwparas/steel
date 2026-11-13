@@ -352,6 +352,7 @@ pub struct Parser<'a> {
     more_to_come: bool,
     input_len: u32,
     resume_at: Option<u32>,
+    resume_in_string: bool,
     resume_blocked: bool,
     datum_comments: Vec<Span>,
     datum_comment_base: usize,
@@ -442,6 +443,29 @@ pub(crate) struct SuspendedParse {
 pub struct ParserState {
     lexer: LexerState,
     parse: Option<Box<SuspendedParse>>,
+    in_string: bool,
+}
+
+impl ParserState {
+    // Whether the bytes of `input` from `seen` on could let the parse get any
+    // further. A string cut short ends only at a quote that is not escaped, so
+    // input without one is not worth another pass over the whole string
+    pub fn could_advance(&self, input: &[u8], seen: usize) -> bool {
+        if !self.in_string {
+            return true;
+        }
+
+        (seen..input.len()).any(|at| {
+            input[at] == b'"'
+                && input[..at]
+                    .iter()
+                    .rev()
+                    .take_while(|byte| **byte == b'\\')
+                    .count()
+                    % 2
+                    == 0
+        })
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -564,7 +588,11 @@ impl<'a> Parser<'a> {
             }))
         };
 
-        Some(ParserState { lexer, parse })
+        Some(ParserState {
+            lexer,
+            parse,
+            in_string: core::mem::take(&mut self.resume_in_string),
+        })
     }
 }
 
@@ -590,6 +618,7 @@ impl<'a> Parser<'a> {
             more_to_come: false,
             input_len: 0,
             resume_at: None,
+            resume_in_string: false,
             resume_blocked: false,
             datum_comments: Vec::new(),
             datum_comment_base: 0,
@@ -1412,6 +1441,8 @@ impl<'a> Parser<'a> {
                     Ok(token) => token.span.start,
                     Err(_) => self.tokenizer.state().token_start(),
                 });
+                self.resume_in_string =
+                    matches!(&res, Err(err) if err.ty == TokenError::IncompleteString);
 
                 return None;
             }
