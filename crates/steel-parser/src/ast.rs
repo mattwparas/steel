@@ -23,11 +23,52 @@ use thin_vec::thin_vec;
 
 use super::{interner::InternedString, parser::SyntaxObjectId, span::Span};
 
+// thin-vec's own serde support pulls in serde's std feature
+mod thin_vec_serde {
+    use core::{fmt, marker::PhantomData};
+    use serde::{
+        de::{SeqAccess, Visitor},
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
+    use thin_vec::ThinVec;
+
+    pub fn serialize<T: Serialize, S: Serializer>(
+        values: &ThinVec<T>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(values.iter())
+    }
+
+    struct Elements<T>(PhantomData<T>);
+
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for Elements<T> {
+        type Value = ThinVec<T>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a sequence")
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            let mut values = ThinVec::with_capacity(seq.size_hint().unwrap_or(0).min(4096));
+            while let Some(value) = seq.next_element()? {
+                values.push(value);
+            }
+            Ok(values)
+        }
+    }
+
+    pub fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<ThinVec<T>, D::Error> {
+        deserializer.deserialize_seq(Elements(PhantomData))
+    }
+}
+
 // TODO: Have this macro share the implementation crate wide
 macro_rules! define_symbols {
     ($($name:tt => $str:expr,) * ) => {
         $(
-            pub static $name: once_cell::sync::Lazy<InternedString> = once_cell::sync::Lazy::new(|| $str.into());
+            pub static $name: crate::interner::Lazy<InternedString> = crate::interner::Lazy::new(|| $str.into());
         )*
     };
 }
@@ -832,6 +873,7 @@ impl From<Define> for ExprKind {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LambdaFunction {
+    #[serde(with = "thin_vec_serde")]
     pub args: ThinVec<ExprKind>,
     pub body: ExprKind,
     pub location: SyntaxObject,
@@ -1081,6 +1123,7 @@ impl From<Require> for ExprKind {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Vector {
+    #[serde(with = "thin_vec_serde")]
     pub args: ThinVec<ExprKind>,
     pub bytes: bool,
     pub span: Span,
@@ -1149,6 +1192,7 @@ impl From<Vector> for ExprKind {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct List {
+    #[serde(with = "thin_vec_serde")]
     pub args: ThinVec<ExprKind>,
     pub syntax_object_id: u32,
     pub improper: bool,
@@ -1603,7 +1647,9 @@ impl From<Macro> for ExprKind {
 // by the expander
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SyntaxRules {
+    #[serde(with = "thin_vec_serde")]
     pub syntax: ThinVec<ExprKind>,
+    #[serde(with = "thin_vec_serde")]
     pub patterns: ThinVec<PatternPair>,
     pub location: SyntaxObject,
 }

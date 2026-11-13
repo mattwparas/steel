@@ -8,7 +8,6 @@ use alloc::{
 };
 use core::result;
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -250,7 +249,7 @@ impl SyntaxObject {
 
     pub fn from_token_with_source(
         val: &Token<'_, InternedString>,
-        _source: &Option<Rc<PathBuf>>,
+        _source: &Option<Rc<SourcePath>>,
     ) -> Self {
         SyntaxObject {
             ty: val.ty.clone(),
@@ -269,13 +268,18 @@ impl From<&Token<'_, InternedString>> for SyntaxObject {
     }
 }
 
+#[cfg(feature = "std")]
+pub type SourcePath = std::path::PathBuf;
+#[cfg(not(feature = "std"))]
+pub type SourcePath = String;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
-    MismatchedParen(Paren, Span, Option<Rc<PathBuf>>),
-    UnexpectedEOF(Span, Option<Rc<PathBuf>>),
-    UnexpectedChar(char, Span, Option<Rc<PathBuf>>),
-    SyntaxError(String, Span, Option<Rc<PathBuf>>),
-    ArityMismatch(String, Span, Option<Rc<PathBuf>>),
+    MismatchedParen(Paren, Span, Option<Rc<SourcePath>>),
+    UnexpectedEOF(Span, Option<Rc<SourcePath>>),
+    UnexpectedChar(char, Span, Option<Rc<SourcePath>>),
+    SyntaxError(String, Span, Option<Rc<SourcePath>>),
+    ArityMismatch(String, Span, Option<Rc<SourcePath>>),
 }
 
 impl From<TokenLike<'_, TokenError>> for ParseError {
@@ -305,7 +309,7 @@ impl core::fmt::Display for ParseError {
     }
 }
 
-impl std::error::Error for ParseError {}
+impl core::error::Error for ParseError {}
 
 impl ParseError {
     pub fn span(&self) -> Span {
@@ -318,7 +322,7 @@ impl ParseError {
         }
     }
 
-    pub fn set_source(self, source: Option<Rc<PathBuf>>) -> Self {
+    pub fn set_source(self, source: Option<Rc<SourcePath>>) -> Self {
         use ParseError::*;
         match self {
             ParseError::MismatchedParen(l, s, _) => MismatchedParen(l, s, source),
@@ -345,7 +349,7 @@ pub struct Parser<'a> {
     quasiquote_depth: isize,
     quote_context: bool,
     shorthand_quote_stack: Vec<usize>,
-    source_name: Option<Rc<PathBuf>>,
+    source_name: Option<Rc<SourcePath>>,
     context: Vec<ParsingContext>,
     comment_buffer: Vec<&'a str>,
     collecting_comments: bool,
@@ -647,7 +651,7 @@ impl<'a> Parser<'a> {
 
     pub fn new_from_source(
         input: &'a str,
-        source_name: PathBuf,
+        source_name: SourcePath,
         source_id: Option<SourceId>,
     ) -> Self {
         let mut parser = Self::new(input, source_id);

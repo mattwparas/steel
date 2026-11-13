@@ -4556,7 +4556,7 @@ dependencies = [
  "cc",
  "libc",
  "once_cell",
- "spin",
+ "spin 0.5.2",
  "untrusted 0.7.1",
  "web-sys",
  "winapi",
@@ -5166,6 +5166,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
+name = "spin"
+version = "0.9.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5372,6 +5378,7 @@ version = "0.8.3"
 dependencies = [
  "compact_str",
  "dashmap 6.1.0",
+ "hashbrown 0.17.1",
  "lasso",
  "log",
  "num-bigint",
@@ -5384,6 +5391,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "smallvec",
+ "spin 0.9.9",
  "thin-vec",
  "unicode-width 0.2.2",
 ]

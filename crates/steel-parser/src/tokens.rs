@@ -7,14 +7,11 @@ use alloc::boxed::Box;
 use core::fmt::{self, Display};
 use core::ops;
 use core::str::FromStr;
-use core::sync::atomic::AtomicU32;
-use dashmap::DashMap;
 use num_bigint::{BigInt, ParseBigIntError};
 use num_rational::Rational32;
 use num_traits::{Num, Signed};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use std::sync::LazyLock;
 use TokenType::*;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -117,33 +114,78 @@ impl<T> TokenType<T> {
     }
 }
 
-#[derive(Default)]
-struct NumberLiteralInterner {
-    keys: DashMap<NumberLiteral, u32>,
-    values: DashMap<u32, NumberLiteral>,
-    key: AtomicU32,
-}
+#[cfg(feature = "std")]
+mod number_interner {
+    use super::NumberLiteral;
+    use core::sync::atomic::{AtomicU32, Ordering};
+    use dashmap::DashMap;
+    use std::sync::LazyLock;
 
-static NUMBER_INTERNER: LazyLock<NumberLiteralInterner> =
-    LazyLock::new(NumberLiteralInterner::default);
+    #[derive(Default)]
+    struct NumberLiteralInterner {
+        keys: DashMap<NumberLiteral, u32>,
+        values: DashMap<u32, NumberLiteral>,
+        key: AtomicU32,
+    }
 
-impl NumberLiteralInterner {
-    pub fn add(&self, n: NumberLiteral) -> InternedNumber {
-        if let Some(value) = self.keys.get(&n) {
-            return InternedNumber(*value);
+    static NUMBER_INTERNER: LazyLock<NumberLiteralInterner> =
+        LazyLock::new(NumberLiteralInterner::default);
+
+    pub fn add(n: NumberLiteral) -> u32 {
+        if let Some(value) = NUMBER_INTERNER.keys.get(&n) {
+            return *value;
         }
 
-        let value = self.key.fetch_add(1, core::sync::atomic::Ordering::Acquire);
-        self.keys.insert(n.clone(), value);
-        self.values.insert(value, n.clone());
-        InternedNumber(value)
+        let value = NUMBER_INTERNER.key.fetch_add(1, Ordering::Acquire);
+        NUMBER_INTERNER.keys.insert(n.clone(), value);
+        NUMBER_INTERNER.values.insert(value, n);
+        value
+    }
+
+    pub fn resolve(key: u32) -> NumberLiteral {
+        NUMBER_INTERNER.values.get(&key).unwrap().clone()
+    }
+}
+
+#[cfg(not(feature = "std"))]
+mod number_interner {
+    use super::NumberLiteral;
+    use alloc::vec::Vec;
+    use hashbrown::HashMap;
+    use rustc_hash::FxBuildHasher;
+    use spin::Mutex;
+
+    struct NumberLiteralInterner {
+        keys: HashMap<NumberLiteral, u32, FxBuildHasher>,
+        values: Vec<NumberLiteral>,
+    }
+
+    static NUMBER_INTERNER: Mutex<NumberLiteralInterner> = Mutex::new(NumberLiteralInterner {
+        keys: HashMap::with_hasher(FxBuildHasher),
+        values: Vec::new(),
+    });
+
+    pub fn add(n: NumberLiteral) -> u32 {
+        let mut interner = NUMBER_INTERNER.lock();
+        if let Some(value) = interner.keys.get(&n) {
+            return *value;
+        }
+
+        let value = interner.values.len() as u32;
+        interner.keys.insert(n.clone(), value);
+        interner.values.push(n);
+        value
+    }
+
+    pub fn resolve(key: u32) -> NumberLiteral {
+        NUMBER_INTERNER.lock().values[key as usize].clone()
     }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct InternedNumber(u32);
 
-impl std::fmt::Display for InternedNumber {
+impl core::fmt::Display for InternedNumber {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.resolve())
     }
@@ -151,13 +193,13 @@ impl std::fmt::Display for InternedNumber {
 
 impl InternedNumber {
     pub fn resolve(&self) -> NumberLiteral {
-        NUMBER_INTERNER.values.get(&self.0).unwrap().clone()
+        number_interner::resolve(self.0)
     }
 }
 
 impl From<NumberLiteral> for InternedNumber {
     fn from(value: NumberLiteral) -> Self {
-        NUMBER_INTERNER.add(value)
+        InternedNumber(number_interner::add(value))
     }
 }
 
