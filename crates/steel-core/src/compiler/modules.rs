@@ -233,7 +233,11 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
             }
         }
 
-        #[cfg(not(target_os = "windows"))]
+        // No XDG directories on Hermit: STEEL_HOME, or ~/.steel if it exists
+        #[cfg(target_os = "hermit")]
+        return None;
+
+        #[cfg(not(any(target_os = "windows", target_os = "hermit")))]
         {
             let bd = xdg::BaseDirectories::new();
             let home = bd.data_home;

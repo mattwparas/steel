@@ -111,8 +111,6 @@ arc-swap = "1.7.1"
 md-5 = "0.10.6"
 glob = "0.3.2"
 
-# For helping discover the steel home location
-xdg = "3.0.0"
 
 shared_vector = "0.4.4"
 
@@ -145,8 +143,13 @@ js-sys = "0.3.69"
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 polling = "3.10.0"
 
-[target.'cfg(not(any(target_family = "wasm", target_env = "newlib")))'.dependencies]
+# `which` and `xdg` don't support Hermit
+[target.'cfg(not(any(target_family = "wasm", target_env = "newlib", target_os = "hermit")))'.dependencies]
 which = "8.0.0"
+
+# For helping discover the steel home location
+[target.'cfg(not(any(windows, target_os = "hermit")))'.dependencies]
+xdg = "3.0.0"
 
 [dev-dependencies]
 proptest = "1.1.0"
