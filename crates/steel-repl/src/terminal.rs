@@ -22,10 +22,19 @@ pub enum Byte {
 }
 
 /// Whether stdin and stdout are both terminals
+#[cfg(not(target_os = "hermit"))]
 pub fn is_terminal() -> bool {
     use std::io::IsTerminal;
 
     io::stdin().is_terminal() && io::stdout().is_terminal()
+}
+
+/// Hermit's console is always a terminal. std can't tell: it asks
+/// `hermit_abi::isatty`, which is hardcoded to `false` (hermit-abi 0.5),
+/// even though the kernel's `sys_isatty` says yes for stdin and stdout.
+#[cfg(target_os = "hermit")]
+pub fn is_terminal() -> bool {
+    true
 }
 
 /// Puts the terminal in raw mode: no echo, no line buffering, Ctrl-C and

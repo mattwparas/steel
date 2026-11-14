@@ -3352,16 +3352,20 @@ impl CompiledModuleCache {
 
     #[cfg(not(target_family = "wasm"))]
     pub fn new(compiled_modules: crate::HashMap<PathBuf, CompiledModule>) -> Self {
-        let home = PathBuf::from(steel_home().unwrap());
+        // No steel home (Hermit, or a home directory that doesn't exist):
+        // run without the on-disk cache
+        let cache_dir = steel_home().map(|home| {
+            let cache_dir = Arc::new(PathBuf::from(home).join("cached-modules"));
 
-        let cache_dir = Arc::new(home.join("cached-modules"));
+            if !cache_dir.exists() {
+                std::fs::create_dir(cache_dir.as_path()).ok();
+            }
 
-        if !cache_dir.exists() {
-            std::fs::create_dir(cache_dir.as_path()).ok();
-        }
+            cache_dir
+        });
 
         Self {
-            cache_dir: Some(cache_dir),
+            cache_dir,
             compiled_modules,
             deferred: crate::HashMap::default(),
         }

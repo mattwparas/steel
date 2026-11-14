@@ -11,7 +11,9 @@ description = "REPL library for steel"
 
 [dependencies]
 colored = "3.0.0"
-steel-core = { workspace = true }
+# Only what the REPL needs; whatever builds it (the steel binary, a Hermit
+# runner) picks the rest: jit2, dylibs, stacker, markdown, ...
+steel-core = { path = "../steel-core", version = "0.8.3", features = ["sync"] }
 steel-parser = { path = "../steel-parser", version = "0.8.3" }
 env_home = "0.1.0"
 unicode-width = "0.2"
