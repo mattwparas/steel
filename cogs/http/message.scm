@@ -404,8 +404,8 @@
              "Retry-After"
              "Vary")))
 
-;; A trailer arrives after the message was framed and routed by its head, so
-;; a field that does either of those, or that says who is asking, is dropped
+;; Drops trailer fields used for framing, routing or authentication. Those are
+;; only valid in the head.
 (define (usable-trailers trailers)
   (filter (lambda (entry)
             (define name (string-downcase (car entry)))

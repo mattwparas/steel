@@ -88,8 +88,8 @@ impl<'a> Doc<'a> {
                     column += 1;
                 }
                 Doc::Line => {
-                    // What follows the newline may sit at a different depth,
-                    // and that is the depth to indent to
+                    // Indent to the depth of the next command, which can differ
+                    // from the depth of this one.
                     let indent = commands.last().map_or(indent, |next| next.0);
                     out.write_char('\n')?;
                     for _ in 0..indent {
@@ -112,8 +112,8 @@ impl<'a> Doc<'a> {
     }
 }
 
-// Whether `doc` laid out flat, and then whatever follows it up to the next
-// newline, stays within the width.
+// Returns true if `doc` laid out flat, plus everything after it up to the next
+// newline, fits within `width`.
 fn fits<'d, 'a>(
     doc: &'d Doc<'a>,
     rest: &[Command<'d, 'a>],

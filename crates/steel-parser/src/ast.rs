@@ -23,7 +23,8 @@ use thin_vec::thin_vec;
 
 use super::{interner::InternedString, parser::SyntaxObjectId, span::Span};
 
-// thin-vec's own serde support pulls in serde's std feature
+// thin-vec's `serde` feature enables serde's `std` feature, so we implement
+// the serialization here instead.
 mod thin_vec_serde {
     use core::{fmt, marker::PhantomData};
     use serde::{

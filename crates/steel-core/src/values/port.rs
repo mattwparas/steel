@@ -540,8 +540,8 @@ fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
     MaybeBlocking::Nonblocking(Some((char::REPLACEMENT_CHARACTER, amt)))
 }
 
-// A read that hit a deadline comes back as WouldBlock on unix, TimedOut on
-// windows. If there's no deadline, TimedOut is a real error
+// A read that hits its deadline returns WouldBlock on unix and TimedOut on
+// windows. Without a deadline, TimedOut is a real error.
 fn blocked(err: &io::Error, deadline: bool) -> bool {
     err.kind() == io::ErrorKind::WouldBlock || (deadline && err.kind() == io::ErrorKind::TimedOut)
 }
@@ -578,8 +578,8 @@ fn read_full<R: Read>(
 pub enum SteelPortRepr {
     FileInput(String, Peekable<BufReader<File>>),
     FileOutput(String, BufWriter<File>),
-    // Reads are buffered but writes are not, so a read ahead moves the file
-    // handle past the program's position and a write has to seek back first
+    // Reads are buffered and writes are not. The file handle can be ahead of
+    // the port's position, so a write has to seek back first.
     FileInputOutput(String, Peekable<BufReader<File>>),
     StdInput(Peekable<Stdin>),
     StdOutput(Stdout),
@@ -1209,8 +1209,8 @@ impl SteelPortRepr {
         *self = SteelPortRepr::Closed;
     }
 
-    // A port that is open both ways closes one side at a time, as r7rs asks
-    // of a port like a socket, and what is left is the port for the other side
+    // Closes only the output side of a port that is open both ways, leaving
+    // the input side usable. This is what r7rs specifies for sockets.
     pub fn close_output_port(&mut self) -> Result<()> {
         if !self.is_output() {
             stop!(TypeMismatch => "expected output-port?, found {}", self)

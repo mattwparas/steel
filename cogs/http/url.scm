@@ -262,8 +262,8 @@
                     (drop-prefix path 1)
                     path)
                 "/"))
-  ;; An empty segment is part of the path, so `/a//b` keeps both slashes. A dot
-  ;; segment at the end names a directory, which the empty segment after it spells
+  ;; Empty segments are kept, so `/a//b` keeps both slashes. A trailing dot
+  ;; segment is replaced with an empty segment, so `/a/.` becomes `/a/`.
   (define kept
     (let loop ([rest segments]
                [out '()])

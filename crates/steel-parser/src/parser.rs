@@ -458,9 +458,9 @@ pub struct ParserState {
 }
 
 impl ParserState {
-    // Whether the bytes of `input` from `seen` on could let the parse get any
-    // further. A string cut short ends only at a quote that is not escaped, so
-    // input without one is not worth another pass over the whole string
+    // Returns false if parsing again cannot make progress. This is the case
+    // when we stopped inside a string and `input[seen..]` has no unescaped
+    // quote. Skipping the parse avoids re-lexing the whole string per chunk.
     pub fn could_advance(&self, input: &[u8], seen: usize) -> bool {
         if !self.in_string {
             return true;
@@ -536,8 +536,8 @@ impl<'a> Parser<'a> {
         }
 
         parser.incremental = true;
-        // read returns the datum that was written, and the @doc desugar can turn
-        // one datum into two expressions, so it is off for the reader
+        // The @doc desugar can turn one datum into two expressions, and `read`
+        // has to return exactly the datum that was written.
         parser.collect_doc_comments = false;
         parser.more_to_come = more_to_come;
         parser.input_len = input.len() as u32;
@@ -1314,8 +1314,9 @@ impl<'a> Parser<'a> {
             owner_base: _,
         } = pending;
 
-        // A source file nests as deep as the stack allows, as it always has. The
-        // reader takes data from anywhere, on any thread, so it gets a bound
+        // Each prefix recurses, so the reader limits how deep they can nest. Its
+        // input is untrusted and it can run on any thread. Source files are not
+        // limited.
         if self.incremental && self.prefix_depth >= MAX_PREFIX_DEPTH {
             return Err(self.too_deep(span));
         }

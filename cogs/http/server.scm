@@ -46,8 +46,8 @@
 
 (define (target->url target host)
   (cond
-    ;; The host is spliced in front of the target, so one that holds more than
-    ;; an authority would move the path
+    ;; The host is prepended to the target, so it must only be an authority.
+    ;; Otherwise it could change the path.
     [(and host (not (every-char? host host-char?))) #f]
     [(equal? target "*") (make-url (or host "") #:path "*")]
     [(string-contains? target "://") (parse-url target)]

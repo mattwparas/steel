@@ -137,8 +137,8 @@
 ;; Parses one header line into a trimmed `(name . value)` pair, or `#false`.
 (define (parse-header-line line)
   (define split (split-once line ":"))
-  ;; A name that is not a token, like one with a space before the colon, would
-  ;; be a field this side does not see and the next hop might
+  ;; Reject names that are not tokens, e.g. `Content-Length : 5`. Another hop
+  ;; might accept the header that we would otherwise ignore.
   (if (and (list? split) (token? (car split)) (field-value? (list-ref split 1)))
       (cons (car split) (trim (list-ref split 1)))
       #f))
