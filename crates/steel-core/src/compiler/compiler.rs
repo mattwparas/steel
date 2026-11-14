@@ -1566,10 +1566,12 @@ impl Compiler {
             // TODO
             // Cut this off at 10 iterations no matter what
             OptLevel::Three => {
-                for _ in 0..3 {
+                // The first run binds every top-level constant, so a form can
+                // fold a constant defined after it only from the second run on.
+                for run in 0..3 {
                     expanded_statements = manager.run(expanded_statements)?;
 
-                    if !manager.changed {
+                    if run > 0 && !manager.changed {
                         break;
                     }
                 }
