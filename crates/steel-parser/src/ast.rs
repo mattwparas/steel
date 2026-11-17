@@ -23,7 +23,8 @@ use thin_vec::thin_vec;
 
 use super::{interner::InternedString, parser::SyntaxObjectId, span::Span};
 
-// thin-vec's `serde` feature enables serde's `std` feature
+// Hacking around thin vec serde with no_std
+// there might be a better way to do this and it can be cleaned up later
 mod thin_vec_serde {
     use core::{fmt, marker::PhantomData};
     use serde::{
