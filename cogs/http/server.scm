@@ -46,8 +46,6 @@
 
 (define (target->url target host)
   (cond
-    ;; The host is prepended to the target, so it must only be an authority.
-    ;; Otherwise it could change the path.
     [(and host (not (every-char? host host-char?))) #f]
     [(equal? target "*") (make-url (or host "") #:path "*")]
     [(string-contains? target "://") (parse-url target)]
@@ -60,8 +58,6 @@
            (make-url "" #:path target)))]))
 
 (define (request-body-mode headers)
-  ;; With any encoding other than exactly chunked, the end of the body is
-  ;; ambiguous
   (define encodings (header-tokens headers "Transfer-Encoding"))
   (define declared (content-length headers))
   (cond

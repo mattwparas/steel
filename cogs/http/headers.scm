@@ -34,8 +34,6 @@
       (and (>= code 97) (<= code 122))
       (string-contains? "!#$%&'*+-.^_`|~" char)))
 
-;;@doc
-;; Whether `str` is an http token: letters, digits and `!#$%&'*+-.^_`|~`
 (define (token? str)
   (and (not (equal? str "")) (every-char? str token-char?)))
 
@@ -50,9 +48,6 @@
     (error "http: a header value cannot contain a newline or a nul:" value))
   (cons name value))
 
-;;@doc
-;; Converts an alist, a list of two element lists, or a hashmap into a header
-;; alist.
 (define (normalize-headers headers)
   (cond
     [(hash? headers)
@@ -84,10 +79,6 @@
 (define (header-ref* headers name)
   (map cdr (filter (lambda (entry) (header-name=? (car entry) name)) headers)))
 
-;;@doc
-;; Every comma separated value held under `name`, lowercased and in order. A
-;; field repeated on several lines is treated as one line with the values
-;; joined in order.
 (define (header-tokens headers name)
   (filter (lambda (token) (not (equal? token "")))
           (map (lambda (part) (string-downcase (trim part)))
@@ -126,9 +117,6 @@
 (define (header-names headers)
   (map car headers))
 
-;;@doc
-;; Formats headers as crlf terminated head lines, without the blank line that
-;; ends the head.
 (define (headers->string headers)
   (apply string-append
          (map (lambda (entry) (string-append (car entry) ": " (cdr entry) "\r\n")) headers)))
@@ -137,8 +125,6 @@
 ;; Parses one header line into a trimmed `(name . value)` pair, or `#false`.
 (define (parse-header-line line)
   (define split (split-once line ":"))
-  ;; Reject names that are not tokens, e.g. `Content-Length : 5`. Another hop
-  ;; might accept the header that we would otherwise ignore.
   (if (and (list? split) (token? (car split)) (field-value? (list-ref split 1)))
       (cons (car split) (trim (list-ref split 1)))
       #f))

@@ -159,8 +159,7 @@
        port)]))
 
 ;;@doc
-;; Parses a url, leaving percent escapes as given. A url that is already parsed is
-;; returned unchanged.
+;; Parses a url, leaving percent escapes
 (define (parse-url input)
   (if (url? input)
       input

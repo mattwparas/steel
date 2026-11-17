@@ -63,7 +63,7 @@
 (struct transport (reader writer close) #:transparent)
 
 ;;@doc
-;; Builds a transport out of a reader, a writer, and a thunk that closes them.
+;; Builds a transport out of a reader, a writer, and a thunk to call when closing
 (define (make-transport reader writer #:close [close (lambda () void)])
   (transport reader writer close))
 
@@ -206,8 +206,6 @@
       (and (>= status 100) (< status 200))))
 
 (define (body-mode headers status method)
-  ;; With any encoding other than exactly chunked, the end of the body is
-  ;; ambiguous
   (define encodings (header-tokens headers "Transfer-Encoding"))
   (define declared (content-length headers))
   (cond

@@ -844,7 +844,6 @@ impl SteelPortRepr {
 
         match self {
             SteelPortRepr::FileInput(_, br) | SteelPortRepr::FileInputOutput(_, br) => {
-                // Seek before dropping anything, so a failed seek leaves the port unchanged
                 let at = br.inner.seek(from)?;
                 br.discard_read_ahead();
                 br.consumed_any = at != 0;
@@ -1207,7 +1206,6 @@ impl SteelPortRepr {
         *self = SteelPortRepr::Closed;
     }
 
-    // A port that is open both ways keeps its input side
     pub fn close_output_port(&mut self) -> Result<()> {
         if let SteelPortRepr::TcpStream(tcp) = self {
             match tcp.inner.shutdown(std::net::Shutdown::Write) {
@@ -1219,7 +1217,6 @@ impl SteelPortRepr {
         self.abandon_output_port()
     }
 
-    // Like `close_output_port`, but does not shut down a tcp connection
     pub fn abandon_output_port(&mut self) -> Result<()> {
         if !self.is_output() {
             stop!(TypeMismatch => "expected output-port?, found {}", self)
@@ -1242,7 +1239,6 @@ impl SteelPortRepr {
             stop!(TypeMismatch => "expected input-port?, found {}", self)
         }
 
-        // Seek before closing anything, so a failed seek leaves the port unchanged
         if let SteelPortRepr::FileInputOutput(_, reader) = self {
             reader.rewind_read_ahead()?;
         }
