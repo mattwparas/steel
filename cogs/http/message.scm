@@ -95,7 +95,8 @@
     [else headers]))
 
 ;;@doc
-;; Builds a request. Give it either a `body` or a `form`, not both.
+;; Builds a request. Takes either a `body` or a `form`, not both since the form already
+;; carries the body information.
 ;;
 ;; (make-request method target [#:headers headers] [#:body body]
 ;;               [#:form form] [#:query query] [#:auth auth]
@@ -230,16 +231,12 @@
         (cons 504 "Gateway Timeout")
         (cons 505 "HTTP Version Not Supported")))
 
-;;@doc
-;; The reason phrase for `status`, or `""` when there is no well known one
 (define (reason-phrase status)
   (define found (assv status *reasons*))
   (if found
       (cdr found)
       ""))
 
-;;@doc
-;; Builds a response, filling in the reason phrase for `status`.
 (define (make-response status
                        #:reason [reason #f]
                        #:headers [headers '()]
@@ -266,8 +263,6 @@
 (define (would-block-error)
   (error *would-block-message*))
 
-;;@doc
-;; Whether `err` came from a read that ran out of time
 (define (would-block-error? err)
   (equal? (trim (to-string (error-object-message err))) *would-block-message*))
 
@@ -289,8 +284,6 @@
        (error "http: a line of the head was longer than" *max-line-length* "characters")]
       [else (loop (cons char chars) (+ length 1))])))
 
-;;@doc
-;; Whether `version` is a version this library supports
 (define (known-version? version)
   (or (equal? version "HTTP/1.1") (equal? version "HTTP/1.0")))
 
@@ -404,17 +397,12 @@
              "Retry-After"
              "Vary")))
 
-;; Drops trailer fields used for framing, routing or authentication. Those are
-;; only valid in the head.
 (define (usable-trailers trailers)
   (filter (lambda (entry)
             (define name (string-downcase (car entry)))
             (not (or (starts-with? name "if-") (member name *head-only-fields*))))
           trailers))
 
-;;@doc
-;; Reads a chunked body off `reader`, and returns it with its trailer headers.
-;; A body past `limit` returns `'too-large`.
 (define (read-chunked reader #:limit [limit #f])
   (let loop ([chunks '()]
              [read-so-far 0])

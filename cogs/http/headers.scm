@@ -75,7 +75,7 @@
       [else (loop (cdr rest))])))
 
 ;;@doc
-;; Every value held under `name`, in order
+;; Every value held under `name`
 (define (header-ref* headers name)
   (map cdr (filter (lambda (entry) (header-name=? (car entry) name)) headers)))
 
