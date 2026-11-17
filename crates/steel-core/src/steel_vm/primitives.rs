@@ -2022,8 +2022,6 @@ impl crate::rvals::Custom for MutableVector {
     }
 }
 
-// Invalid utf8 becomes U+FFFD. An incomplete sequence at the end is left out
-// unless at eof.
 fn lossy_text(pending: &[u8], at_eof: bool) -> Cow<'_, str> {
     let mut text = String::new();
     let mut rest = pending;
@@ -2057,7 +2055,6 @@ fn lossy_text(pending: &[u8], at_eof: bool) -> Cow<'_, str> {
     }
 }
 
-// Where an offset into `lossy_text` falls in `pending`
 fn raw_offset(pending: &[u8], offset: usize, at_eof: bool) -> usize {
     let mut raw = 0;
     let mut text = 0;
@@ -2164,7 +2161,9 @@ enum Outcome {
 
 fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
     let expr = {
-        // Hold the lock for the whole datum so concurrent readers don't interleave
+        // Note: we're going to hold the lock for the whole datum we read
+        // so that concurrent readers don't produce garbage. I'm not sure
+        // other implementations do this, but for now this seems fine.
         let mut guard = port.port.write();
         let mut at_eof = false;
         let mut state = guard.take_parse_state();
