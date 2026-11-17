@@ -89,7 +89,7 @@
              (lambda () (with-handler (lambda (err) void) (tcp-shutdown! stream)))))
 
 ;;@doc
-;; The procedure the client uses to reach a host: a url in, a `transport?` out.
+;; The procedure the client uses to reach a host. Accepts a url and returns a `transport?`.
 ;;
 ;; # Examples
 ;;
