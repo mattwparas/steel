@@ -91,10 +91,11 @@
       [(and (equal? line "") (< skipped 2)) (loop (+ skipped 1))]
       [else line])))
 
-(define (read-request reader writer)
+(define (read-request reader writer [idle? #f])
   (define line (or-bad-request (lambda () (read-request-line reader))))
   (cond
     [(eof-object? line) line]
+    [(and idle? (problem-report? line) (equal? (problem-report-status line) 408)) (eof-object)]
     [(problem-report? line) line]
     [else
      (let ([parts (request-line-parts line)])
@@ -246,7 +247,7 @@
     (cond
       [(and limit (>= served limit)) served]
       [else
-       (let ([outcome (read-request reader writer)])
+       (let ([outcome (read-request reader writer (> served 0))])
          (cond
            [(eof-object? outcome) served]
            [(problem-report? outcome)

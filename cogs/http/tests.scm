@@ -1025,6 +1025,23 @@
                  (flush-output-port writer)
                  (http-serve-one server hello #:limit 1)
                  (trim (read-line (tcp-stream-buffered-reader slow)))))
+ (check-equal? "idle keep-alive connection closes without a 408"
+               (list "HTTP/1.1 200 OK" 1 #t)
+               (let* ([server (http-listen "127.0.0.1:0" #:read-timeout 50)]
+                      [idle (tcp-connect (server-address server))]
+                      [writer (tcp-stream-writer idle)]
+                      [reader (tcp-stream-buffered-reader idle)])
+                 (write-string *get* writer)
+                 (flush-output-port writer)
+                 (let* ([served (http-serve-one server hello)]
+                        [received (http-read-response reader)])
+                   (list (string-append (response-version received)
+                                        " "
+                                        (int->string (response-status received))
+                                        " "
+                                        (response-reason received))
+                         served
+                         (eof-object? (read-line reader))))))
  (check-equal? "invalid read timeout errors"
                (list #t #t)
                (map (lambda (timeout)
