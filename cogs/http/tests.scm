@@ -73,11 +73,11 @@
 
 (test-module
  "http-url-tests"
- (check-equal? "a bare host gets a scheme, a port and a path"
+ (check-equal? "parse-url fills in scheme, port and path for a bare host"
                (list "http" "example.com" 80 "/")
                (let ([url (parse-url "example.com")])
                  (list (url-scheme url) (url-host url) (url-port url) (url-path url))))
- (check-equal? "every part of a url comes back out"
+ (check-equal? "parse-url reads every part of a url"
                (list "https" "user:pw" "example.com" 8443 "/a/b" "x=1&y=2" "frag")
                (let ([url (parse-url "https://user:pw@example.com:8443/a/b?x=1&y=2#frag")])
                  (list (url-scheme url)
@@ -87,147 +87,131 @@
                        (url-path url)
                        (url-query url)
                        (url-fragment url))))
- (check-equal? "https knows its port" 443 (url-port (parse-url "https://example.com")))
- (check-equal? "an ipv6 host loses its brackets, an authority keeps them"
+ (check-equal? "https default port" 443 (url-port (parse-url "https://example.com")))
+ (check-equal? "ipv6 host without brackets, authority with brackets"
                (list "::1" "[::1]:8080")
                (let ([url (parse-url "http://[::1]:8080/x")])
                  (list (url-host url) (url-authority url))))
- (check-equal? "a default port stays out of the authority"
+ (check-equal? "default port is left out of the authority"
                "example.com"
                (url-authority (parse-url "http://example.com:80/x")))
- (check-equal? "the request target is the path and the query"
-               "/a?b=1"
-               (url-target (parse-url "http://x/a?b=1")))
- (check-equal? "an origin is the scheme and the authority"
+ (check-equal? "request target is path and query" "/a?b=1" (url-target (parse-url "http://x/a?b=1")))
+ (check-equal? "origin is scheme and authority"
                "http://x:81"
                (url-origin (parse-url "http://x:81/a")))
- (check-equal? "a url survives a round trip"
+ (check-equal? "url->string round trip"
                "http://a:81/b/c?d#e"
                (url->string (parse-url "http://a:81/b/c?d#e")))
- (check-equal? "a parsed url parses to itself"
+ (check-equal? "parse-url on a parsed url"
                "http://a/b"
                (url->string (parse-url (parse-url "http://a/b"))))
- (check-err? "a url with no host is refused" (parse-url "http:///just-a-path") 'raises)
- (check-err? "a port that is not a number is refused" (parse-url "http://a:http/") 'raises)
- (check-equal? "reserved characters are escaped" "a%20b%2Fc%3Fd%3D%C3%A9" (url-encode "a b/c?d=é"))
- (check-equal? "a path keeps its slashes when asked" "a%20b/c" (url-encode "a b/c" #:safe "/"))
- (check-equal? "escapes, and a form's plus, decode" "a b/c dé" (url-decode "a%20b%2Fc+d%C3%A9"))
- (check-equal? "a percent that is not an escape is left alone" "100% %zz" (url-decode "100%+%zz"))
- (check-equal? "a query is encoded from an association list"
+ (check-err? "url with no host errors" (parse-url "http:///just-a-path") 'raises)
+ (check-err? "non-numeric port errors" (parse-url "http://a:http/") 'raises)
+ (check-equal? "url-encode escapes reserved characters"
+               "a%20b%2Fc%3Fd%3D%C3%A9"
+               (url-encode "a b/c?d=é"))
+ (check-equal? "url-encode keeps slashes in a path" "a%20b/c" (url-encode "a b/c" #:safe "/"))
+ (check-equal? "url-decode handles escapes and form plus" "a b/c dé" (url-decode "a%20b%2Fc+d%C3%A9"))
+ (check-equal? "url-decode leaves an invalid percent alone" "100% %zz" (url-decode "100%+%zz"))
+ (check-equal? "encode query from association list"
                "q=a%20b&page=2&flag"
                (alist->query (list (cons "q" "a b") (cons "page" 2) (cons "flag" #f))))
- (check-equal? "a query decodes back to an association list"
+ (check-equal? "decode query to association list"
                (list (cons "q" "a b") (cons "page" "2") (cons "flag" ""))
                (query->alist "q=a%20b&page=2&flag"))
- (check-equal? "an empty query has no pairs" '() (query->alist #f))
- (check-equal? "a part whose escapes are not utf8 is left as it was written"
-               (list (cons "a" "%FF"))
-               (query->alist "a=%FF"))
- (check-equal? "a full url replaces the one it was found on"
+ (check-equal? "empty query decodes to no pairs" '() (query->alist #f))
+ (check-equal? "invalid utf8 escapes are left encoded" (list (cons "a" "%FF")) (query->alist "a=%FF"))
+ (check-equal? "resolve absolute url"
                "http://z/q"
                (url->string (url-join "http://a/b/c" "http://z/q")))
- (check-equal? "an absolute path keeps the origin"
-               "http://a/d"
-               (url->string (url-join "http://a/b/c?x=1" "/d")))
- (check-equal? "a relative path hangs off the directory"
-               "http://a/b/d/e"
-               (url->string (url-join "http://a/b/c" "d/e")))
- (check-equal? "dot segments are resolved"
+ (check-equal? "resolve absolute path" "http://a/d" (url->string (url-join "http://a/b/c?x=1" "/d")))
+ (check-equal? "resolve relative path" "http://a/b/d/e" (url->string (url-join "http://a/b/c" "d/e")))
+ (check-equal? "resolve dot segments"
                "http://a/x"
                (url->string (url-join "http://a/b/c/d" "../../x")))
- (check-equal? "an empty segment in a path is kept"
+ (check-equal? "resolve keeps empty path segments"
                (list "http://a/proxy/http://example.com/x" "http://a/a//b" "http://a/b/g//")
                (map (lambda (reference) (url->string (url-join "http://a/b/c" reference)))
                     (list "/proxy/http://example.com/x" "/a//b" "g//h/..")))
- (check-equal? "a scheme relative reference keeps the scheme"
+ (check-equal? "resolve scheme relative reference"
                "https://z/q"
                (url->string (url-join "https://a/b" "//z/q")))
- (check-equal? "a bare fragment keeps the query"
+ (check-equal? "resolve fragment only reference"
                "http://a/b?x=1#top"
                (url->string (url-join "http://a/b?x=1" "#top")))
- (check-equal? "a bare query replaces the query"
+ (check-equal? "resolve query only reference"
                "http://a/b?y=2"
                (url->string (url-join "http://a/b?x=1" "?y=2")))
- (check-equal? "a reference is relative even with a url in its query"
+ (check-equal? "resolve relative reference with a url in its query"
                "http://a/login?next=https://b/x"
                (url->string (url-join "http://a/b/c" "/login?next=https://b/x")))
- (check-equal? "a non ascii safe character is encoded anyway" "%C3%A9" (url-encode "é" #:safe "é"))
- (check-equal? "a plus is a plus when it is not form encoded"
-               "a+b c"
-               (url-decode "a+b%20c" #:form #f))
- (check-equal? "an empty reference drops the fragment it resolved against"
+ (check-equal? "url-encode escapes non-ascii characters" "%C3%A9" (url-encode "é" #:safe "é"))
+ (check-equal? "url-decode keeps plus when not form encoded" "a+b c" (url-decode "a+b%20c" #:form #f))
+ (check-equal? "resolve empty reference drops the fragment"
                "http://a/b?x=1"
                (url->string (url-join "http://a/b?x=1#top" "")))
- (check-equal? "a colon in front of a port is a port, not a scheme"
+ (check-equal? "resolve reference with colon before a port"
                (list "localhost" 8080)
                (let ([url (parse-url "localhost:8080/x")]) (list (url-host url) (url-port url))))
- (check-err? "a reference with a scheme this cannot hold is refused"
+ (check-err? "resolve reference with unsupported scheme errors"
              (url-join "http://a/b" "mailto:someone@example.com")
              'raises)
- (check-err? "a url with a scheme this cannot hold is refused"
-             (parse-url "mailto:someone@example.com")
-             'raises)
- (check-err? "a host with a colon in it outside brackets is refused"
-             (parse-url "http://a:1:2/")
-             'raises))
+ (check-err? "url with unsupported scheme errors" (parse-url "mailto:someone@example.com") 'raises)
+ (check-err? "host with colon outside brackets errors" (parse-url "http://a:1:2/") 'raises))
 
 (test-module
  "http-headers-tests"
- (check-equal? "headers come from pairs or from two element lists"
+ (check-equal? "headers from pairs or two element lists"
                (list (cons "A" "1") (cons "B" "2"))
                (normalize-headers (list (cons "A" 1) (list "B" "2"))))
- (check-equal? "a name is looked up without its case"
+ (check-equal? "header lookup is case insensitive"
                "text/plain"
                (header-ref (normalize-headers (list (cons "Content-Type" "text/plain")))
                            "content-type"))
- (check-equal? "a missing name answers with the default"
-               "none"
-               (header-ref '() "Content-Type" "none"))
- (check-equal? "a repeated name keeps every value"
+ (check-equal? "header lookup with default" "none" (header-ref '() "Content-Type" "none"))
+ (check-equal? "repeated header keeps every value"
                (list "a" "b")
                (header-ref* (header-add (header-add '() "Set-Cookie" "a") "Set-Cookie" "b")
                             "set-cookie"))
- (check-equal? "setting a name takes the old value away"
+ (check-equal? "header-set replaces the old value"
                (list "new")
                (header-ref* (header-set (header-add '() "A" "old") "a" "new") "A"))
- (check-equal? "a default does not overwrite"
+ (check-equal? "header-default does not overwrite"
                "mine"
                (header-ref (header-default (header-add '() "A" "mine") "a" "theirs") "A"))
- (check-equal? "removing a name takes every value"
+ (check-equal? "header-remove removes every value"
                '()
                (header-ref* (header-remove (header-add '() "A" "1") "a") "A"))
- (check-equal? "headers are written as crlf lines"
+ (check-equal? "headers written as crlf lines"
                "A: 1\r\nB: 2\r\n"
                (headers->string (list (cons "A" "1") (cons "B" "2"))))
- (check-equal? "a header line splits on the first colon"
+ (check-equal? "header line splits on first colon"
                (cons "Location" "http://x/y")
                (parse-header-line "Location: http://x/y"))
- (check-equal? "a line with no colon is not a header" #f (parse-header-line "nocolon"))
- (check-err? "a newline in a value is refused"
+ (check-equal? "header line without colon" #f (parse-header-line "nocolon"))
+ (check-err? "newline in header value errors"
              (normalize-headers (list (cons "X" "a\r\nY: b")))
              'raises)
- (check-err? "a colon in a name is refused" (normalize-headers (list (cons "X:Y" "a"))) 'raises)
- (check-err? "a space in a name is refused" (normalize-headers (list (cons "X Y" "a"))) 'raises)
- (check-equal? "the punctuation a token allows is kept"
+ (check-err? "colon in header name errors" (normalize-headers (list (cons "X:Y" "a"))) 'raises)
+ (check-err? "space in header name errors" (normalize-headers (list (cons "X Y" "a"))) 'raises)
+ (check-equal? "token punctuation in header name"
                "X-Not_A.Token!: 1\r\n"
                (headers->string (header-add '() "X-Not_A.Token!" 1))))
 
 (test-module
  "http-base64-tests"
- (check-equal? "the empty string encodes to nothing" "" (base64-encode ""))
- (check-equal? "one byte pads twice" "Zg==" (base64-encode "f"))
- (check-equal? "two bytes pad once" "Zm8=" (base64-encode "fo"))
- (check-equal? "three bytes do not pad" "Zm9v" (base64-encode "foo"))
- (check-equal? "credentials encode the way a server expects"
-               "dXNlcjpwYXNzd29yZA=="
-               (base64-encode "user:password"))
- (check-equal? "bytes survive a round trip"
+ (check-equal? "base64 encode empty string" "" (base64-encode ""))
+ (check-equal? "base64 encode one byte" "Zg==" (base64-encode "f"))
+ (check-equal? "base64 encode two bytes" "Zm8=" (base64-encode "fo"))
+ (check-equal? "base64 encode three bytes" "Zm9v" (base64-encode "foo"))
+ (check-equal? "base64 encode credentials" "dXNlcjpwYXNzd29yZA==" (base64-encode "user:password"))
+ (check-equal? "base64 round trip"
                (bytes 0 255 128)
                (base64-decode (base64-encode (bytes 0 255 128))))
- (check-equal? "whitespace in the middle is ignored" (bytes 102 111 111) (base64-decode "Zm\n9v"))
- (check-err? "a digit outside the alphabet is refused" (base64-decode "a*b") 'raises)
- (check-err? "a digit after the padding is refused" (base64-decode "QQ=A") 'raises)
- (check-equal? "a payload of many groups survives a round trip"
+ (check-equal? "base64 decode ignores whitespace" (bytes 102 111 111) (base64-decode "Zm\n9v"))
+ (check-err? "base64 decode invalid digit errors" (base64-decode "a*b") 'raises)
+ (check-err? "base64 decode digit after padding errors" (base64-decode "QQ=A") 'raises)
+ (check-equal? "base64 round trip, many groups"
                #t
                (let ([long (apply string-append (map (lambda (n) "0123456789") (range 0 30)))])
                  (equal? long (bytes->string/utf8 (base64-decode (base64-encode long)))))))
@@ -235,26 +219,26 @@
 (test-module
  "http-response-tests"
  (check-equal?
-  "a status line is read into its three parts"
+  "status line parts"
   (list "HTTP/1.1" 200 "OK")
   (let ([response (reply-to (list *ok*) (lambda () (http-get "http://x/")))])
     (list (response-version response) (response-status response) (response-reason response))))
- (check-equal? "a body of a known length is read whole"
+ (check-equal? "response body with Content-Length"
                "hello world"
                (response-text (reply-to (list *ok*) (lambda () (http-get "http://x/")))))
- (check-equal? "a 2xx is ok"
+ (check-equal? "response-ok? on 2xx"
                #t
                (response-ok? (reply-to (list *ok*) (lambda () (http-get "http://x/")))))
- (check-equal? "a 404 is not ok"
+ (check-equal? "response-ok? on 404"
                #f
                (response-ok? (reply-to (list "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
                                        (lambda () (http-get "http://x/")))))
- (check-equal? "a header is read without its case"
+ (check-equal? "response header lookup is case insensitive"
                "text/plain"
                (response-header (reply-to (list *ok*) (lambda () (http-get "http://x/")))
                                 "content-type"))
  (check-equal?
-  "a status code is three digits, and nothing a number reader would also take"
+  "status code must be three digits"
   (list #t #t)
   (map (lambda (code)
          (with-handler
@@ -264,20 +248,20 @@
              (open-input-string (string-append "HTTP/1.1 " code " OK\r\nContent-Length: 0\r\n\r\n")))
             #f)))
        (list "#xc8" "+200")))
- (check-equal? "a reason phrase may be missing"
+ (check-equal? "response without reason phrase"
                (list 200 "")
                (let ([response (reply-to (list "HTTP/1.1 200\r\nContent-Length: 0\r\n\r\n")
                                          (lambda () (http-get "http://x/")))])
                  (list (response-status response) (response-reason response))))
- (check-equal? "a chunked body is put back together"
+ (check-equal? "chunked response body"
                "hello world"
                (response-text (reply-to (list *chunked*) (lambda () (http-get "http://x/")))))
- (check-equal? "a trailer joins the headers"
+ (check-equal? "chunked trailers are added to headers"
                "11"
                (response-header (reply-to (list *chunked*) (lambda () (http-get "http://x/")))
                                 "x-sum"))
  (check-equal?
-  "a trailer does not stand in for a field of the head"
+  "trailers do not override head fields"
   (list #f #f "t")
   (let ([response
          (reply-to
@@ -287,114 +271,114 @@
     (list (response-header response "Location")
           (response-header response "Set-Cookie")
           (response-header response "X-Trailer"))))
- (check-equal? "a body with no length is read until the connection closes"
+ (check-equal? "response body without length reads to eof"
                "no length here"
                (response-text (reply-to (list "HTTP/1.1 200 OK\r\n\r\nno length here")
                                         (lambda () (http-get "http://x/")))))
- (check-equal? "the answer to a HEAD keeps the length and drops the body"
+ (check-equal? "HEAD response keeps Content-Length, no body"
                (list "99" 0)
                (let ([response (reply-to (list "HTTP/1.1 200 OK\r\nContent-Length: 99\r\n\r\n")
                                          (lambda () (http-head "http://x/")))])
                  (list (response-header response "content-length")
                        (bytes-length (response-body response)))))
- (check-equal? "a 204 has no body"
+ (check-equal? "204 response has no body"
                (list 204 0)
                (let ([response (reply-to (list "HTTP/1.1 204 No Content\r\n\r\n")
                                          (lambda () (http-get "http://x/")))])
                  (list (response-status response) (bytes-length (response-body response)))))
  (check-equal?
-  "a 304 has no body"
+  "304 response has no body"
   0
   (bytes-length (response-body
                  (reply-to (list "HTTP/1.1 304 Not Modified\r\nContent-Length: 7\r\n\r\n")
                            (lambda () (http-get "http://x/"))))))
  (check-equal?
-  "a folded header line belongs to the header above it"
+  "folded header line"
   "one two"
   (response-header
    (reply-to (list "HTTP/1.1 200 OK\r\nX-Long: one\r\n  two\r\nContent-Length: 0\r\n\r\n")
              (lambda () (http-get "http://x/")))
    "x-long"))
- (check-equal? "two lengths that agree are one length"
+ (check-equal? "repeated matching Content-Length"
                "ab"
                (response-text (reply-to (list "HTTP/1.1 200 OK\r\nContent-Length: 2, 2\r\n\r\nab")
                                         (lambda () (http-get "http://x/")))))
- (check-equal? "http/1.1 keeps the connection unless it says otherwise"
+ (check-equal? "http/1.1 response defaults to keep-alive"
                #t
                (response-keep-alive? (reply-to (list *ok*) (lambda () (http-get "http://x/")))))
- (check-equal? "a Connection: close is believed"
+ (check-equal? "response with Connection: close"
                #f
                (response-keep-alive?
                 (reply-to (list "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
                           (lambda () (http-get "http://x/")))))
- (check-equal? "a Connection: close is believed wherever it was written"
+ (check-equal? "Connection: close in a second header line"
                #f
                (response-keep-alive? (reply-to (list (string-append "HTTP/1.1 200 OK\r\n"
                                                                     "Connection: keep-alive\r\n"
                                                                     "Connection: close\r\n"
                                                                     "Content-Length: 0\r\n\r\n"))
                                                (lambda () (http-get "http://x/")))))
- (check-err? "two lengths that disagree are refused, rather than guessed at"
+ (check-err? "conflicting Content-Length errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Length: 3\r\n\r\nab")
                        (lambda () (http-get "http://x/")))
              'raises)
  (check-err?
-  "a chunked body with a length is refused"
+  "chunked with Content-Length errors"
   (reply-to
    (list "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n")
    (lambda () (http-get "http://x/")))
   'raises)
- (check-err? "an unknown transfer encoding is refused"
+ (check-err? "unknown Transfer-Encoding errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\nxx")
                        (lambda () (http-get "http://x/")))
              'raises)
- (check-err? "a transfer encoding that is chunked and something else is refused"
+ (check-err? "chunked plus another Transfer-Encoding errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n")
                        (lambda () (http-get "http://x/")))
              'raises)
- (check-err? "a transfer encoding written over two lines reads as one list"
+ (check-err? "Transfer-Encoding split over two header lines"
              (reply-to (list (string-append "HTTP/1.1 200 OK\r\n"
                                             "Transfer-Encoding: chunked\r\n"
                                             "Transfer-Encoding: gzip\r\n\r\n"
                                             "5\r\nhello\r\n0\r\n\r\n"))
                        (lambda () (http-get "http://x/")))
              'raises)
- (check-err? "a body cut short is refused"
+ (check-err? "truncated response body errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nContent-Length: 20\r\n\r\nshort")
                        (lambda () (http-get "http://x/")))
              'raises)
- (check-err? "something that is not a status line is refused"
+ (check-err? "invalid status line errors"
              (reply-to (list "not http at all\r\n\r\n") (lambda () (http-get "http://x/")))
              'raises)
- (check-err? "a head that never ends is refused"
+ (check-err? "unterminated head errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nA: b") (lambda () (http-get "http://x/")))
              'raises)
- (check-err? "a chunk size that is not a number is refused"
+ (check-err? "non-numeric chunk size errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n")
                        (lambda () (http-get "http://x/")))
              'raises)
  (check-err?
-  "a chunk size with a sign on it is refused"
+  "signed chunk size errors"
   (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n+5\r\nhello\r\n0\r\n\r\n")
             (lambda () (http-get "http://x/")))
   'raises)
- (check-err? "a content length with a sign on it is refused"
+ (check-err? "signed Content-Length errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nContent-Length: +2\r\n\r\nab")
                        (lambda () (http-get "http://x/")))
              'raises)
- (check-err? "a header line with no end to it is refused"
+ (check-err? "unterminated header line errors"
              (reply-to (list (string-append "HTTP/1.1 200 OK\r\nX: "
                                             (apply string-append
                                                    (map (lambda (n) "0123456789")
                                                         (range 0 (quotient *max-line-length* 5))))))
                        (lambda () (http-get "http://x/")))
              'raises)
- (check-err? "a version this client does not speak is refused"
+ (check-err? "unsupported http version errors"
              (reply-to (list "HTTP/2 200 OK\r\nContent-Length: 0\r\n\r\n")
                        (lambda () (http-get "http://x/")))
              'raises)
  (check-equal?
-  "a body longer than one read comes back whole"
+  "large response body"
   (list 70000 #t)
   (let* ([body (apply string-append (map (lambda (n) "0123456789") (range 0 7000)))]
          [text (response-text (reply-to (list (string-append "HTTP/1.1 200 OK\r\nContent-Length: "
@@ -403,7 +387,7 @@
                                                              body))
                                         (lambda () (http-get "http://x/"))))])
     (list (string-length text) (equal? text body))))
- (check-err? "more header lines than are allowed is refused"
+ (check-err? "too many header lines errors"
              (reply-to (list (string-append "HTTP/1.1 200 OK\r\n"
                                             (headers->string (map (lambda (n)
                                                                     (cons "X" (int->string n)))
@@ -411,7 +395,7 @@
                                             "\r\n"))
                        (lambda () (http-get "http://x/")))
              'raises)
- (check-err? "interim responses that never end are refused"
+ (check-err? "too many interim responses errors"
              (reply-to (list (apply string-append
                                     (map (lambda (n) "HTTP/1.1 100 Continue\r\n\r\n") (range 0 20))))
                        (lambda () (http-get "http://x/")))
@@ -420,28 +404,28 @@
 (test-module
  "http-request-tests"
  (check-equal?
-  "the request line carries the method, the target and the version"
+  "request line has method, target and version"
   "GET /a?b=1 HTTP/1.1"
   (request-line
    (request-text (requests-of (list *ok*) (lambda () (http-get "http://example.com/a?b=1"))) 0)))
- (check-equal? "the host header comes from the url"
+ (check-equal? "Host header from url"
                #t
                (string-contains?
                 (request-text (requests-of (list *ok*) (lambda () (http-get "http://example.com/a")))
                               0)
                 "Host: example.com\r\n"))
  (check-equal?
-  "a non default port stays in the host header"
+  "Host header keeps a non default port"
   #t
   (string-contains?
    (request-text (requests-of (list *ok*) (lambda () (http-get "http://example.com:8080/a"))) 0)
    "Host: example.com:8080\r\n"))
- (check-equal? "the client names itself"
+ (check-equal? "default User-Agent header"
                #t
                (string-contains?
                 (request-text (requests-of (list *ok*) (lambda () (http-get "http://x/"))) 0)
                 "User-Agent: steel-http/0.1.0\r\n"))
- (check-equal? "the caller's own header wins over the default"
+ (check-equal? "caller header overrides default"
                #t
                (string-contains?
                 (request-text (requests-of (list *ok*)
@@ -451,23 +435,23 @@
                               0)
                 "User-Agent: mine\r\n"))
  (check-equal?
-  "a body gets a length"
+  "body sets Content-Length"
   #t
   (string-contains?
    (request-text (requests-of (list *ok*) (lambda () (http-post "http://x/" #:body "payload"))) 0)
    "Content-Length: 7\r\n"))
- (check-equal? "a post with no body still says so"
+ (check-equal? "post without body sends Content-Length: 0"
                #t
                (string-contains?
                 (request-text (requests-of (list *ok*) (lambda () (http-post "http://x/"))) 0)
                 "Content-Length: 0\r\n"))
  (check-equal?
-  "a body is sent after the head"
+  "body follows the head"
   #t
   (ends-with?
    (request-text (requests-of (list *ok*) (lambda () (http-post "http://x/" #:body "payload"))) 0)
    "\r\n\r\npayload"))
- (check-equal? "a form is url encoded and typed"
+ (check-equal? "form body is url encoded with Content-Type"
                #t
                (let ([text (request-text (requests-of (list *ok*)
                                                       (lambda ()
@@ -477,14 +461,14 @@
                                          0)])
                  (and (string-contains? text "Content-Type: application/x-www-form-urlencoded\r\n")
                       (ends-with? text "\r\n\r\nq=a%20b&n=2"))))
- (check-equal? "a query keyword replaces the query"
+ (check-equal? "query keyword replaces url query"
                "GET /p?a=b%20c HTTP/1.1"
                (request-line (request-text (requests-of (list *ok*)
                                                         (lambda ()
                                                           (http-get "http://x/p?old=1"
                                                                     #:query (list (cons "a" "b c")))))
                                            0)))
- (check-equal? "credentials become a basic authorization header"
+ (check-equal? "basic auth from credentials"
                #t
                (string-contains?
                 (request-text (requests-of (list *ok*)
@@ -492,7 +476,7 @@
                                              (http-get "http://x/" #:auth (cons "user" "password"))))
                               0)
                 "Authorization: Basic dXNlcjpwYXNzd29yZA==\r\n"))
- (check-equal? "credentials in the url become a header, not part of the request line"
+ (check-equal? "basic auth from url credentials"
                #t
                (let ([text (request-text (requests-of (list *ok*)
                                                       (lambda ()
@@ -500,51 +484,51 @@
                                          0)])
                  (and (string-contains? text "Authorization: Basic dXNlcjpwYXNzd29yZA==\r\n")
                       (equal? (request-line text) "GET /p HTTP/1.1"))))
- (check-equal? "a plus in url credentials is a plus, not a space"
+ (check-equal? "plus in url credentials is not decoded"
                #t
                (string-contains?
                 (request-text (requests-of (list *ok*) (lambda () (http-get "http://user:pa+ss@x/p")))
                               0)
                 "Authorization: Basic dXNlcjpwYStzcw==\r\n"))
- (check-equal? "a request asks for no encoding it cannot undo"
+ (check-equal? "default Accept-Encoding"
                #t
                (string-contains?
                 (request-text (requests-of (list *ok*) (lambda () (http-get "http://x/"))) 0)
                 "Accept-Encoding: identity\r\n"))
- (check-equal? "a one shot request asks to be hung up on"
+ (check-equal? "one shot request sends Connection: close"
                #t
                (string-contains?
                 (request-text (requests-of (list *ok*) (lambda () (http-get "http://x/"))) 0)
                 "Connection: close\r\n"))
- (check-err? "a body and a form together are refused"
+ (check-err? "body and form together errors"
              (make-request "POST" "http://x/" #:body "a" #:form (list (cons "b" "c")))
              'raises)
- (check-err? "a body that is not text or bytes is refused"
+ (check-err? "body that is not a string or bytes errors"
              (make-request "POST" "http://x/" #:body 42)
              'raises))
 
 (test-module
  "http-redirect-tests"
- (check-equal? "a relative location is resolved and followed"
+ (check-equal? "redirect with relative location"
                (list "http://a/first" "http://a/next")
                (map car
                     (requests-of (list (redirect-to "/next")
                                        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
                                  (lambda () (http-get "http://a/first")))))
- (check-equal? "the body of the last hop is the answer"
+ (check-equal? "redirect returns the last response body"
                "ok"
                (response-text (reply-to (list (redirect-to "/next")
                                               "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
                                         (lambda () (http-get "http://a/first")))))
  (check-equal?
-  "a 302 turns a post into a get without a body"
+  "302 changes post to get without body"
   "GET /next HTTP/1.1"
   (request-line (request-text (requests-of (list (redirect-to "/next")
                                                  "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
                                            (lambda () (http-post "http://a/first" #:body "data")))
                               1)))
  (check-equal?
-  "a 307 asks again exactly as before"
+  "307 repeats the request"
   #t
   (let ([text (request-text
                (requests-of (list (string-append "HTTP/1.1 307 Temporary Redirect\r\n"
@@ -554,13 +538,13 @@
                1)])
     (and (equal? (request-line text) "POST /again HTTP/1.1") (ends-with? text "\r\n\r\ndata"))))
  (check-equal?
-  "a head stays a head"
+  "redirect keeps HEAD method"
   "HEAD /next HTTP/1.1"
   (request-line (request-text (requests-of (list (redirect-to "/next")
                                                  "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
                                            (lambda () (http-head "http://a/first")))
                               1)))
- (check-equal? "credentials follow a redirect within the same origin"
+ (check-equal? "credentials kept on same origin redirect"
                #t
                (string-contains?
                 (request-text (requests-of (list (redirect-to "/next")
@@ -569,7 +553,7 @@
                                              (http-get "http://a/first" #:auth (cons "u" "p"))))
                               1)
                 "Authorization: "))
- (check-equal? "credentials do not follow a redirect to another origin"
+ (check-equal? "credentials dropped on cross origin redirect"
                #f
                (string-contains?
                 (request-text (requests-of (list (redirect-to "http://b/there")
@@ -578,7 +562,7 @@
                                              (http-get "http://a/first" #:auth (cons "u" "p"))))
                               1)
                 "Authorization: "))
- (check-equal? "the host header is rewritten for the new origin"
+ (check-equal? "Host header updated on cross origin redirect"
                #t
                (string-contains?
                 (request-text (requests-of (list (redirect-to "http://b/there")
@@ -586,37 +570,37 @@
                                            (lambda () (http-get "http://a/first")))
                               1)
                 "Host: b\r\n"))
- (check-equal? "asking not to follow hands back the 3xx"
+ (check-equal? "follow disabled returns the 3xx"
                (list 302 "/next")
                (let ([response (reply-to (list (redirect-to "/next"))
                                          (lambda () (http-get "http://a/" #:follow 0)))])
                  (list (response-status response) (response-header response "location"))))
- (check-equal? "a 3xx with no location is the answer"
+ (check-equal? "3xx without location is returned"
                301
                (response-status (reply-to (list "HTTP/1.1 301 Moved\r\nContent-Length: 0\r\n\r\n")
                                           (lambda () (http-get "http://a/")))))
- (check-err? "a redirect that never lands is refused"
+ (check-err? "too many redirects errors"
              (reply-to (list (redirect-to "/1") (redirect-to "/2"))
                        (lambda () (http-get "http://a/" #:follow 1)))
              'raises))
 
 (test-module
  "http-socket-tests"
- (check-equal? "a request and a reply cross a real socket"
+ (check-equal? "get over tcp"
                "hello world"
                (response-text (over-socket *ok* (lambda () (http-get "http://127.0.0.1/a")))))
- (check-equal? "a chunked body crosses a real socket"
+ (check-equal? "chunked body over tcp"
                "hello world"
                (response-text (over-socket *chunked* (lambda () (http-get "http://127.0.0.1/a")))))
- (check-equal? "a post crosses a real socket"
+ (check-equal? "post over tcp"
                200
                (response-status
                 (over-socket *ok* (lambda () (http-post "http://127.0.0.1/a" #:body "payload")))))
- (check-equal? "the answer to a HEAD crosses a real socket"
+ (check-equal? "HEAD over tcp"
                0
                (bytes-length (response-body
                               (over-socket *ok* (lambda () (http-head "http://127.0.0.1/a"))))))
- (check-equal? "a body larger than one read arrives whole"
+ (check-equal? "large body over tcp"
                (list 20000 #t)
                (let* ([body (apply string-append (map (lambda (each) "0123456789") (range 0 2000)))]
                       [response (over-socket (string-append "HTTP/1.1 200 OK\r\nContent-Length: "
@@ -626,12 +610,12 @@
                                              (lambda () (http-get "http://127.0.0.1/big")))])
                  (list (bytes-length (response-body response))
                        (equal? (response-text response) body))))
- (check-equal? "an unbuffered reader reads a response too"
+ (check-equal? "response read from unbuffered reader"
                "hello world"
                (response-text (over-socket *ok*
                                            (lambda () (http-get "http://127.0.0.1/a"))
                                            #:reader tcp-stream-reader)))
- (check-equal? "a body with no length ends when the peer hangs up"
+ (check-equal? "body without length over tcp"
                "until the end"
                (let* ([listener (tcp-listen "127.0.0.1:0")]
                       [client (tcp-connect (tcp-listener-local-addr listener))]
@@ -640,7 +624,7 @@
                  (tcp-shutdown! server)
                  (response-text (http-read-response (tcp-stream-buffered-reader client)))))
  (check-equal?
-  "a reply still arrives when the connector is given a read timeout"
+  "response with a connector read timeout"
   "hello world"
   (let ([listener (tcp-listen "127.0.0.1:0")]
         [far-end (box #f)])
@@ -650,7 +634,7 @@
                                              (display *ok* (tcp-stream-writer (unbox far-end)))
                                              sent)])
       (response-text (http-get (string-append "http://" (tcp-listener-local-addr listener) "/a"))))))
- (check-equal? "a read waits no longer than the timeout the connector was given"
+ (check-equal? "connector read timeout"
                #t
                (let* ([listener (tcp-listen "127.0.0.1:0")]
                       [target (string-append "http://" (tcp-listener-local-addr listener) "/a")]
@@ -664,7 +648,7 @@
                                                'returned))])
                  (if far-end outcome outcome)))
  (check-equal?
-  "one connection carries two exchanges"
+  "two requests on one connection over tcp"
   (list "one" "two")
   (let ()
     (define listener (tcp-listen "127.0.0.1:0"))
@@ -690,50 +674,44 @@
 
 (test-module
  "http-framing-tests"
- (check-err? "a newline in a path is refused, rather than written into the request line"
-             (parse-url "http://x/a\r\nX-Evil: 1")
-             'raises)
- (check-err? "a newline in a query is refused" (parse-url "http://x/a?b=1\nX: 2") 'raises)
- (check-err? "a space in a host is refused" (parse-url "http://ev il/a") 'raises)
- (check-err? "a space in a path is refused, since url-encode is right there"
-             (parse-url "http://x/a b")
-             'raises)
- (check-equal? "an escaped space is a path like any other"
-               "/a%20b"
-               (url-target (parse-url "http://x/a%20b")))
- (check-err? "a method with a request line in it is refused"
+ (check-err? "newline in path errors" (parse-url "http://x/a\r\nX-Evil: 1") 'raises)
+ (check-err? "newline in query errors" (parse-url "http://x/a?b=1\nX: 2") 'raises)
+ (check-err? "space in host errors" (parse-url "http://ev il/a") 'raises)
+ (check-err? "space in path errors" (parse-url "http://x/a b") 'raises)
+ (check-equal? "escaped space in path" "/a%20b" (url-target (parse-url "http://x/a%20b")))
+ (check-err? "method containing a request line errors"
              (http-send "GET /evil HTTP/1.1\r\nX" "http://x/")
              'raises)
- (check-equal? "a method may be a symbol"
+ (check-equal? "method as symbol"
                "DELETE /x HTTP/1.1"
                (request-line (request-text (requests-of (list *ok*)
                                                         (lambda () (http-send 'delete "http://x/x")))
                                            0)))
- (check-err? "a request this client cannot frame is refused rather than sent broken"
+ (check-err? "request with invalid framing headers errors"
              (reply-to (list *ok*)
                        (lambda ()
                          (http-post "http://x/"
                                     #:body "a"
                                     #:headers (list (cons "Transfer-Encoding" "chunked")))))
              'raises)
- (check-err? "a negative redirect count is refused" (http-get "http://x/" #:follow -1) 'raises)
- (check-err? "a method that is not a token is refused"
+ (check-err? "negative redirect count errors" (http-get "http://x/" #:follow -1) 'raises)
+ (check-err? "method that is not a token errors"
              (make-request (string-append "GET" (string (integer->char 127))) "http://x/")
              'raises)
  (check-equal?
-  "a 100 Continue is stepped over"
+  "100 Continue is skipped"
   (list 200 "ok")
   (let ([response (reply-to (list (string-append "HTTP/1.1 100 Continue\r\n\r\n"
                                                  "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"))
                             (lambda () (http-get "http://x/")))])
     (list (response-status response) (response-text response))))
- (check-equal? "early hints are stepped over, headers and all"
+ (check-equal? "103 early hints are skipped"
                200
                (response-status
                 (reply-to (list (string-append "HTTP/1.1 103 Early Hints\r\nLink: </s.css>\r\n\r\n"
                                                "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"))
                           (lambda () (http-get "http://x/")))))
- (check-equal? "a 101 is the answer, since the connection is no longer http"
+ (check-equal? "101 is returned as the response"
                101
                (response-status
                 (reply-to (list "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n")
@@ -771,30 +749,30 @@
 (test-module
  "http-server-request-tests"
  (check-equal?
-  "a request arrives with its method, target and version"
+  "request has method, target and version"
   (list "GET" "/a?b=1" "HTTP/1.1")
   (let ([sent (http-read-request (open-input-string "GET /a?b=1 HTTP/1.1\r\nHost: x\r\n\r\n"))])
     (list (request-method sent) (request-target sent) (request-version sent))))
  (check-equal?
-  "a header arrives on the request"
+  "request header lookup"
   "text/plain"
   (request-header
    (http-read-request (open-input-string "GET /a HTTP/1.1\r\nHost: x\r\nAccept: text/plain\r\n\r\n"))
    "Accept"))
- (check-equal? "the host of the request line is the host of the url"
+ (check-equal? "request url host comes from Host header"
                "x"
                (url-host (request-url (http-read-request (open-input-string *get*)))))
- (check-equal? "a request with no body has none, rather than an empty one"
+ (check-equal? "request without body has #false body"
                #f
                (request-body (http-read-request (open-input-string *get*))))
- (check-equal? "a body of the declared length arrives whole"
+ (check-equal? "request body with Content-Length"
                "hello"
                (bytes->string/utf8
                 (request-body (http-read-request
                                (open-input-string
                                 "POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhello")))))
  (check-equal?
-  "a chunked body arrives whole, trailers and all"
+  "chunked request body with trailers"
   (list "hello world" "t")
   (let ([sent (http-read-request
                (open-input-string
@@ -802,49 +780,49 @@
                                "Transfer-Encoding: chunked\r\n\r\n"
                                "5\r\nhello\r\n6\r\n world\r\n0\r\nX-Trailer: t\r\n\r\n")))])
     (list (bytes->string/utf8 (request-body sent)) (request-header sent "X-Trailer"))))
- (check-equal? "a transfer encoding that is chunked and something else is a 501"
+ (check-equal? "chunked plus another Transfer-Encoding is a 501"
                "HTTP/1.1 501 Not Implemented"
                (answer-status (string-append "POST /a HTTP/1.1\r\nHost: x\r\n"
                                              "Transfer-Encoding: gzip, chunked\r\n\r\n"
                                              "0\r\n\r\n")
                               hello))
- (check-equal? "a transfer encoding written over two lines reads as one list"
+ (check-equal? "request Transfer-Encoding split over two header lines"
                "HTTP/1.1 501 Not Implemented"
                (answer-status (string-append "POST /a HTTP/1.1\r\nHost: x\r\n"
                                              "Transfer-Encoding: chunked\r\n"
                                              "Transfer-Encoding: gzip\r\n\r\n"
                                              "0\r\n\r\n")
                               hello))
- (check-equal? "a connection that closes between requests is the end of them, not an error"
+ (check-equal? "eof between requests is not an error"
                #t
                (eof-object? (http-read-request (open-input-string ""))))
- (check-equal? "an absolute target, which is what a proxy is asked for, keeps its own host"
+ (check-equal? "absolute request target keeps its own host"
                "other"
                (url-host (request-url (http-read-request
                                        (open-input-string
                                         "GET http://other/a HTTP/1.1\r\nHost: x\r\n\r\n")))))
- (check-equal? "an OPTIONS may ask about the server itself"
+ (check-equal? "OPTIONS * request target"
                "*"
                (request-target (http-read-request
                                 (open-input-string "OPTIONS * HTTP/1.1\r\nHost: x\r\n\r\n"))))
- (check-equal? "an HTTP/1.0 request may arrive with no Host at all"
+ (check-equal? "HTTP/1.0 request without Host"
                (list "/a" "HTTP/1.0")
                (let ([sent (http-read-request (open-input-string "GET /a HTTP/1.0\r\n\r\n"))])
                  (list (request-target sent) (request-version sent))))
  (check-equal?
-  "an obs-fold continuation belongs to the header above it"
+  "folded request header line"
   "one two"
   (request-header
    (http-read-request (open-input-string "GET /a HTTP/1.1\r\nHost: x\r\nX-Long: one\r\n two\r\n\r\n"))
    "X-Long"))
- (check-err? "a request this server cannot read is an error"
+ (check-err? "unreadable request errors"
              (http-read-request (open-input-string "nonsense\r\n\r\n"))
              'raises)
- (check-equal? "a stray crlf before the request line is skipped, not read as a request"
+ (check-equal? "leading crlf before request line is skipped"
                "/a"
                (request-target (http-read-request (open-input-string (string-append "\r\n" *get*)))))
  (check-equal?
-  "an Expect gets its go ahead before the body is read"
+  "Expect: 100-continue is answered before the body"
   "HTTP/1.1 100 Continue\r\n\r\n"
   (let ([writer (open-output-string)])
     (http-read-request
@@ -852,20 +830,20 @@
                                        "Expect: 100-continue\r\nContent-Length: 2\r\n\r\nhi"))
      #:continue writer)
     (get-output-string writer)))
- (check-equal? "a 1.1 request holds the connection open, a 1.0 one does not"
+ (check-equal? "keep-alive default for 1.1 and 1.0 requests"
                (list #t #f)
                (list (request-keep-alive? (http-read-request (open-input-string *get*)))
                      (request-keep-alive?
                       (http-read-request (open-input-string "GET /a HTTP/1.0\r\n\r\n")))))
  (check-equal?
-  "either end may ask to hold a 1.0 connection open, or to drop a 1.1 one"
+  "Connection header overrides the keep-alive default"
   (list #t #f)
   (list (request-keep-alive?
          (http-read-request (open-input-string "GET /a HTTP/1.0\r\nConnection: keep-alive\r\n\r\n")))
         (request-keep-alive?
          (http-read-request
           (open-input-string "GET /a HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")))))
- (check-equal? "a Connection written over two lines reads as one list"
+ (check-equal? "Connection split over two header lines"
                #f
                (request-keep-alive?
                 (http-read-request (open-input-string (string-append "GET /a HTTP/1.1\r\nHost: x\r\n"
@@ -874,7 +852,7 @@
 
 (test-module
  "http-server-answer-tests"
- (check-equal? "an answer carries the status line, the length and the body"
+ (check-equal? "response has status line, Content-Length and body"
                (string-append "HTTP/1.1 200 OK\r\n"
                               "Server: steel-http/0.1.0\r\n"
                               "Connection: keep-alive\r\n"
@@ -882,31 +860,31 @@
                               "\r\n"
                               "hello /a")
                (answer *get* hello))
- (check-equal? "the reason phrase comes from the code when it is not given"
+ (check-equal? "default reason phrase"
                "HTTP/1.1 404 Not Found"
                (answer-status *get* (lambda (sent) (make-response 404))))
- (check-equal? "a reason phrase with a newline in it is a 500, not another header"
+ (check-equal? "newline in reason phrase is a 500"
                "HTTP/1.1 500 Internal Server Error"
                (answer-status *get* (lambda (sent) (make-response 200 #:reason "OK\r\nX: y"))))
- (check-equal? "a reason phrase may be given instead"
+ (check-equal? "custom reason phrase"
                "HTTP/1.1 404 Nothing Here"
                (answer-status *get* (lambda (sent) (make-response 404 #:reason "Nothing Here"))))
- (check-equal? "a code with no well known phrase goes out without one"
+ (check-equal? "status code without a known reason phrase"
                "HTTP/1.1 599"
                (answer-status *get* (lambda (sent) (make-response 599))))
- (check-equal? "the headers a handler sets are the ones that go out"
+ (check-equal? "handler headers are sent"
                #t
                (string-contains?
                 (answer *get*
                         (lambda (sent) (make-response 200 #:headers (list (cons "X-Mine" "yes")))))
                 "X-Mine: yes"))
- (check-equal? "a handler may name the Server header itself"
+ (check-equal? "handler overrides Server header"
                #t
                (string-contains?
                 (answer *get*
                         (lambda (sent) (make-response 200 #:headers (list (cons "Server" "mine")))))
                 "Server: mine"))
- (check-equal? "the answer to a HEAD carries the length of a body it does not send"
+ (check-equal? "HEAD response has Content-Length, no body"
                (string-append "HTTP/1.1 200 OK\r\n"
                               "Server: steel-http/0.1.0\r\n"
                               "Connection: keep-alive\r\n"
@@ -914,47 +892,47 @@
                               "\r\n")
                (answer "HEAD /a HTTP/1.1\r\nHost: x\r\n\r\n"
                        (lambda (sent) (make-response 200 #:body "hello"))))
- (check-equal? "a 204 sends neither a body nor a length for one"
+ (check-equal? "204 response has no body or Content-Length"
                (string-append "HTTP/1.1 204 No Content\r\n"
                               "Server: steel-http/0.1.0\r\n"
                               "Connection: keep-alive\r\n"
                               "\r\n")
                (answer *get* (lambda (sent) (make-response 204 #:body "ignored"))))
- (check-equal? "a 304 sends no length either, since it stands in for a body it is not sending"
+ (check-equal? "304 response has no Content-Length"
                #f
                (string-contains? (answer *get* (lambda (sent) (make-response 304))) "Content-Length"))
- (check-equal? "an answer this server cannot frame is a 500, rather than sent broken"
+ (check-equal? "response with Transfer-Encoding is a 500"
                "HTTP/1.1 500 Internal Server Error"
                (answer-status *get*
                               (lambda (sent)
                                 (make-response 200
                                                #:headers (list (cons "Transfer-Encoding" "chunked"))
                                                #:body "x"))))
- (check-err? "writing one directly is still refused"
+ (check-err? "http-write-response! with Transfer-Encoding errors"
              (http-write-response!
               (open-output-string)
               (make-response 200 #:headers (list (cons "Transfer-Encoding" "chunked")) #:body "x"))
              'raises)
- (check-err? "a status code that is not one is refused" (make-response 99) 'raises)
+ (check-err? "invalid status code errors" (make-response 99) 'raises)
  (check-equal?
-  "a bytevector body goes out as it is"
+  "bytevector response body"
   "\r\n\r\nhello"
   (let ([text (answer *get* (lambda (sent) (make-response 200 #:body (string->bytes "hello"))))])
     (substring text (- (string-length text) 9) (string-length text)))))
 
 (test-module
  "http-server-handler-tests"
- (check-equal? "a handler that fails becomes a 500"
+ (check-equal? "handler error is a 500"
                "HTTP/1.1 500 Internal Server Error"
                (answer-status *get* (lambda (sent) (error "a handler blew up"))))
- (check-equal? "the handler's error is not sent to the client"
+ (check-equal? "handler error message is not sent"
                #f
                (string-contains? (answer *get* (lambda (sent) (error "/etc/passwd is right here")))
                                  "passwd"))
- (check-equal? "a handler that answers with something that is not a response becomes a 500"
+ (check-equal? "non-response handler result is a 500"
                "HTTP/1.1 500 Internal Server Error"
                (answer-status *get* (lambda (sent) 'not-a-response)))
- (check-equal? "the handler is called once per request"
+ (check-equal? "handler called once per request"
                2
                (let ([calls (box 0)])
                  (over-ports (string-append *get* *get*)
@@ -962,56 +940,56 @@
                                (set-box! calls (+ (unbox calls) 1))
                                (make-response 200)))
                  (unbox calls)))
- (check-equal? "an answer that cannot be written ends the connection"
+ (check-equal? "write failure ends the connection"
                0
                (let ([writer (open-output-string)])
                  (close-output-port writer)
                  (http-serve-connection (open-input-string *get*) writer hello)))
- (check-equal? "a response this server cannot frame is a 500, not the end of the loop"
+ (check-equal? "response with #false body is a 500"
                "HTTP/1.1 500 Internal Server Error"
                (answer-status *get* (lambda (sent) (response "HTTP/1.1" 200 "OK" '() #f)))))
 
 (test-module
  "http-server-framing-tests"
- (check-equal? "a request line that is not one is a 400"
+ (check-equal? "invalid request line is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "nonsense\r\n\r\n" hello))
- (check-equal? "a request line with a space too many is a 400, rather than guessed at"
+ (check-equal? "request line with extra space is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "GET /a b HTTP/1.1\r\nHost: x\r\n\r\n" hello))
- (check-equal? "a version this server does not speak is a 505"
+ (check-equal? "unsupported http version is a 505"
                "HTTP/1.1 505 HTTP Version Not Supported"
                (answer-status "GET /a HTTP/2.0\r\nHost: x\r\n\r\n" hello))
- (check-equal? "an HTTP/1.1 request without a Host is a 400"
+ (check-equal? "HTTP/1.1 request without Host is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "GET /a HTTP/1.1\r\n\r\n" hello))
- (check-equal? "two Host headers are a 400, rather than left to the next hop to choose"
+ (check-equal? "two Host headers is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "GET /a HTTP/1.1\r\nHost: x\r\nHost: y\r\n\r\n" hello))
- (check-equal? "a chunked body with a Content-Length beside it is a 400"
+ (check-equal? "chunked with Content-Length is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status
                 (string-append "POST /a HTTP/1.1\r\nHost: x\r\n"
                                "Transfer-Encoding: chunked\r\nContent-Length: 5\r\n\r\n0\r\n\r\n")
                 hello))
- (check-equal? "Content-Length headers that disagree are a 400"
+ (check-equal? "conflicting Content-Length is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status (string-append "POST /a HTTP/1.1\r\nHost: x\r\n"
                                              "Content-Length: 5\r\nContent-Length: 6\r\n\r\nhello")
                               hello))
- (check-equal? "a transfer encoding this server cannot read is a 501"
+ (check-equal? "unsupported Transfer-Encoding is a 501"
                "HTTP/1.1 501 Not Implemented"
                (answer-status "POST /a HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\n\r\n" hello))
- (check-equal? "a body longer than this server reads is a 413, before it is read"
+ (check-equal? "Content-Length over the limit is a 413"
                "HTTP/1.1 413 Content Too Large"
                (answer-status (string-append "POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: "
                                              (int->string (+ *max-body-bytes* 1))
                                              "\r\n\r\n")
                               hello))
- (check-equal? "a chunked body longer than it is allowed stops rather than being read whole"
+ (check-equal? "chunked body over the limit stops reading"
                'too-large
                (read-chunked (open-input-string "4\r\nabcd\r\n0\r\n\r\n") #:limit 2))
- (check-equal? "a line of the head longer than it is allowed is a 400"
+ (check-equal? "header line over the limit is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status (string-append "GET /a HTTP/1.1\r\nHost: x\r\nX: "
                                              (apply string-append
@@ -1019,7 +997,7 @@
                                                          (range 0 (quotient *max-line-length* 5))))
                                              "\r\n\r\n")
                               hello))
- (check-equal? "a request line longer than it is allowed is a 400"
+ (check-equal? "request line over the limit is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status (string-append "GET /"
                                              (apply string-append
@@ -1027,18 +1005,18 @@
                                                          (range 0 (quotient *max-line-length* 5))))
                                              " HTTP/1.1\r\nHost: x\r\n\r\n")
                               hello))
- (check-equal? "a client that connects and says nothing does not stop the server"
+ (check-equal? "silent client does not block the server"
                1
                (let* ([server (http-listen "127.0.0.1:0" #:read-timeout 50)]
                       [quiet (tcp-connect (server-address server))])
                  (http-serve-one server hello #:limit 1)))
- (check-equal? "a client that says nothing is told it ran out of time"
+ (check-equal? "silent client gets a 408"
                "HTTP/1.1 408 Request Timeout"
                (let* ([server (http-listen "127.0.0.1:0" #:read-timeout 50)]
                       [quiet (tcp-connect (server-address server))])
                  (http-serve-one server hello #:limit 1)
                  (trim (read-line (tcp-stream-buffered-reader quiet)))))
- (check-equal? "a request that stops part way through its head is told the same"
+ (check-equal? "partial request head gets a 408"
                "HTTP/1.1 408 Request Timeout"
                (let* ([server (http-listen "127.0.0.1:0" #:read-timeout 50)]
                       [slow (tcp-connect (server-address server))]
@@ -1047,7 +1025,7 @@
                  (flush-output-port writer)
                  (http-serve-one server hello #:limit 1)
                  (trim (read-line (tcp-stream-buffered-reader slow)))))
- (check-equal? "a read timeout that is not one is refused when the server is made"
+ (check-equal? "invalid read timeout errors"
                (list #t #t)
                (map (lambda (timeout)
                       (with-handler (lambda (err) #t)
@@ -1055,35 +1033,35 @@
                                       (http-listen "127.0.0.1:0" #:read-timeout timeout)
                                       #f)))
                     (list 0 "soon")))
- (check-equal? "a bare carriage return or a nul in a header value is a 400"
+ (check-equal? "bare cr or nul in header value is a 400"
                (list "HTTP/1.1 400 Bad Request" "HTTP/1.1 400 Bad Request")
                (list (answer-status "GET /a HTTP/1.1\r\nHost: x\r\nX: a\rb\r\n\r\n" hello)
                      (answer-status "GET /a HTTP/1.1\r\nHost: x\r\nX: a\0b\r\n\r\n" hello)))
- (check-equal? "a body that stops early is a 400"
+ (check-equal? "truncated request body is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nshort" hello))
- (check-equal? "a header line that is not one is a 400"
+ (check-equal? "invalid header line is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "GET /a HTTP/1.1\r\nHost: x\r\nnot a header\r\n\r\n" hello))
- (check-equal? "a request this server cannot read is the last one on the connection"
+ (check-equal? "response to an unreadable request sends Connection: close"
                #t
                (string-contains? (answer "nonsense\r\n\r\n" hello) "Connection: close"))
- (check-equal? "a space before the colon of a header is a 400, rather than a field unseen"
+ (check-equal? "space before header colon is a 400"
                (list 1 "HTTP/1.1 400 Bad Request")
                (let ([served (over-ports (string-append "POST /a HTTP/1.1\r\nHost: x\r\n"
                                                         "Content-Length : 5\r\n\r\n"
                                                         "helloGET /b HTTP/1.1\r\nHost: x\r\n\r\n")
                                          hello)])
                  (list (car served) (car (split-many (cdr served) "\r\n")))))
- (check-equal? "a method that is not a token is a 400"
+ (check-equal? "method that is not a token is a 400"
                (list "HTTP/1.1 400 Bad Request" "HTTP/1.1 400 Bad Request")
                (list (answer-status " /a HTTP/1.1\r\nHost: x\r\n\r\n" hello)
                      (answer-status "G(T /a HTTP/1.1\r\nHost: x\r\n\r\n" hello)))
- (check-equal? "a Host that holds more than an authority is a 400, rather than part of the path"
+ (check-equal? "Host with more than an authority is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "GET /a HTTP/1.1\r\nHost: x/b?c\r\n\r\n" hello))
  (check-equal?
-  "a trailer does not reframe or reroute the request"
+  "trailers do not change framing or Host"
   (list '("x") '() '("t"))
   (let ([sent (http-read-request
                (open-input-string
@@ -1093,10 +1071,10 @@
     (list (request-header* sent "Host")
           (request-header* sent "Content-Length")
           (request-header* sent "X-Trailer"))))
- (check-equal? "a target that is neither a path nor a url is a 400"
+ (check-equal? "invalid request target is a 400"
                "HTTP/1.1 400 Bad Request"
                (answer-status "GET notapath HTTP/1.1\r\nHost: x\r\n\r\n" hello))
- (check-equal? "a body with no framing at all is no body, rather than a wait for one"
+ (check-equal? "request without framing headers has no body"
                (list 1 #f)
                (let ([seen (box 'unset)])
                  (list (car (over-ports "POST /a HTTP/1.1\r\nHost: x\r\n\r\n"
@@ -1107,7 +1085,7 @@
 
 (test-module
  "http-server-keep-alive-tests"
- (check-equal? "two requests on one connection are both answered, in order"
+ (check-equal? "two requests on one connection"
                (list 2 #t #t "hello /two")
                (let* ([text (string-append "GET /one HTTP/1.1\r\nHost: x\r\n\r\n"
                                            "GET /two HTTP/1.1\r\nHost: x\r\n\r\n")]
@@ -1118,59 +1096,57 @@
                        (string-contains? back "hello /two")
                        (substring back (- (string-length back) 10) (string-length back)))))
  (check-equal?
-  "a request that asks to close the connection is the last one on it"
+  "request with Connection: close"
   1
   (car (over-ports (string-append "GET /a HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
                                   "GET /b HTTP/1.1\r\nHost: x\r\n\r\n")
                    hello)))
- (check-equal? "a handler may close the connection itself"
+ (check-equal? "handler sets Connection: close"
                1
                (car (over-ports (string-append *get* *get*)
                                 (lambda (sent)
                                   (make-response 200 #:headers (list (cons "Connection" "close")))))))
- (check-equal? "keep-alive off serves one request whatever the request asked for"
+ (check-equal? "keep-alive off serves one request"
                (list 1 #t)
                (let ([out (over-ports (string-append *get* *get*) hello #:keep-alive #f)])
                  (list (car out) (string-contains? (cdr out) "Connection: close"))))
- (check-equal? "a limit stops the connection after that many requests"
-               2
-               (car (over-ports (string-append *get* *get* *get*) hello #:limit 2)))
- (check-equal? "the last answer under a limit says the connection is closing"
+ (check-equal? "request limit" 2 (car (over-ports (string-append *get* *get* *get*) hello #:limit 2)))
+ (check-equal? "last response under a limit sends Connection: close"
                #t
                (let ([out (over-ports (string-append *get* *get*) hello #:limit 1)])
                  (string-contains? (cdr out) "Connection: close")))
- (check-equal? "a connection with nothing on it serves nothing" (cons 0 "") (over-ports "" hello)))
+ (check-equal? "empty connection serves nothing" (cons 0 "") (over-ports "" hello)))
 
 (test-module
  "http-server-socket-tests"
- (check-equal? "a request and an answer cross a real socket"
+ (check-equal? "request and response over tcp"
                (list 200 "hello /a")
                (let ([received (round-trip (make-request "GET" "http://x/a") hello)])
                  (list (response-status received) (response-text received))))
- (check-equal? "a body crosses a real socket"
+ (check-equal? "request body over tcp"
                (list 201 "payload")
                (let ([received (round-trip (make-request "POST" "http://x/a" #:body "payload")
                                            (lambda (sent)
                                              (make-response 201 #:body (request-body sent))))])
                  (list (response-status received) (response-text received))))
- (check-equal? "the answer to a HEAD crosses a real socket with no body"
+ (check-equal? "HEAD over tcp has no body"
                (list 200 0 "5")
                (let ([received (round-trip (make-request "HEAD" "http://x/a")
                                            (lambda (sent) (make-response 200 #:body "hello")))])
                  (list (response-status received)
                        (bytes-length (response-body received))
                        (response-header received "Content-Length"))))
- (check-equal? "a body larger than one read crosses whole"
+ (check-equal? "large request body over tcp"
                (list 20000 #t)
                (let* ([body (apply string-append (map (lambda (each) "0123456789") (range 0 2000)))]
                       [received (round-trip (make-request "GET" "http://x/big")
                                             (lambda (sent) (make-response 200 #:body body)))])
                  (list (bytes-length (response-body received))
                        (equal? (response-text received) body))))
- (check-equal? "a server reports the port the os picked for it"
+ (check-equal? "server-address has the bound port"
                #t
                (string-contains? (server-address (http-listen "127.0.0.1:0")) "127.0.0.1:"))
- (check-equal? "the answer a handler never gave is a 500 over a socket too"
+ (check-equal? "handler error over tcp is a 500"
                500
                (response-status (round-trip (make-request "GET" "http://x/a")
                                             (lambda (sent) (error "blew up"))))))
