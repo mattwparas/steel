@@ -2708,7 +2708,7 @@ mod engine_sandbox_tests {
     }
 
     #[test]
-    fn opening_a_file_says_the_engine_is_sandboxed() {
+    fn opening_a_file_in_sandboxed_engine_fails() {
         let mut engine = Engine::new_sandboxed();
 
         static PROGRAMS: &[&str] = &[
