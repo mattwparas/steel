@@ -42,7 +42,7 @@
          fsync)
 
 ;;@doc
-;; Returns where the next read or write on a port will land, or moves it there.
+;; Returns the position of a port, or sets it when given `position`.
 ;;
 ;; (file-position port [position]) -> (or/c int? void?)
 ;;
@@ -54,8 +54,7 @@
     [(port position) (set-port-position! port position)]))
 
 ;;@doc
-;; Returns where the next read or write on a port will land, or `#f` for a port
-;; that has no position.
+;; Returns the position of a port, or `#f` for a port that has no position.
 ;;
 ;; (file-position* port) -> (or/c int? #f)
 ;;
@@ -74,7 +73,7 @@
   (port-truncate! port length))
 
 ;;@doc
-;; Returns where the next read or write on a port will land.
+;; Returns the position of a port.
 ;;
 ;; (ftell port) -> int?
 ;;
@@ -83,7 +82,7 @@
   (port-position port))
 
 ;;@doc
-;; Flushes a port, and waits for the os to put a file port's bytes on the disk.
+;; Flushes a port. For a file port, also waits for the os to write the bytes to disk.
 ;;
 ;; (fsync port) -> void?
 ;;

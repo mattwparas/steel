@@ -64,6 +64,31 @@ pub fn tcp_close(stream: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
+/// Closes the output side of a tcp port, like `close-output-port`, but without
+/// telling the other end. The other end does not see the end of the stream
+/// until the connection itself is shut down or dropped.
+///
+/// (tcp-abandon-port port) -> void?
+///
+/// * port : port? - a port from `tcp-stream-reader`
+///
+/// # Examples
+///
+/// ```scheme
+/// (define stream (tcp-connect "127.0.0.1:8080"))
+/// (define port (tcp-stream-reader stream))
+/// (tcp-abandon-port port)
+/// (output-port? port) ;; => #false
+/// ```
+#[function(name = "tcp-abandon-port")]
+pub fn tcp_abandon_port(port: &SteelPort) -> Result<SteelVal> {
+    if !port.is_tcp() {
+        stop!(TypeMismatch => "tcp-abandon-port expects a tcp port, found {}", port)
+    }
+
+    port.abandon_output_port().map(|_| SteelVal::Void)
+}
+
 /// Get the writer half of this tcp stream as a port.
 ///
 /// ```scheme
@@ -273,6 +298,7 @@ pub fn tcp_module() -> BuiltInModule {
         .register_native_fn_definition(TCP_ACCEPT_ADDR_DEFINITION)
         .register_native_fn_definition(TCP_LISTENER_SET_NON_BLOCKING_DEFINITION)
         .register_native_fn_definition(TCP_STREAM_SET_NON_BLOCKING_DEFINITION)
+        .register_native_fn_definition(TCP_ABANDON_PORT_DEFINITION)
         .register_native_fn_definition(TCP_STREAM_SET_READ_TIMEOUT_DEFINITION);
 
     module

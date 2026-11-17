@@ -60,8 +60,8 @@
            (make-url "" #:path target)))]))
 
 (define (request-body-mode headers)
-  ;; If the encodings are anything but exactly chunked, the sender and this
-  ;; server do not agree on where the body ends
+  ;; With any encoding other than exactly chunked, the end of the body is
+  ;; ambiguous
   (define encodings (header-tokens headers "Transfer-Encoding"))
   (define declared (content-length headers))
   (cond
@@ -234,8 +234,8 @@
 ;; TODO: Add thread pool support here
 ;;@doc
 ;; Serves requests on one connection until it ends, and returns how many it
-;; served. `handler` takes a `request?` and returns a `response?`; a raise, or
-;; any other value, becomes a 500.
+;; served. `handler` takes a `request?` and returns a `response?`. If it raises
+;; or returns anything else, the response is a 500.
 ;;
 ;; (http-serve-connection reader writer handler [#:keep-alive keep-alive]
 ;;                        [#:limit limit]) -> int?

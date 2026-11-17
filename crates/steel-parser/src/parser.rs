@@ -458,9 +458,8 @@ pub struct ParserState {
 }
 
 impl ParserState {
-    // Returns false if parsing again cannot make progress. This is the case
-    // when we stopped inside a string and `input[seen..]` has no unescaped
-    // quote. Skipping the parse avoids re-lexing the whole string per chunk.
+    // False when stopped inside a string and `input[seen..]` has no unescaped
+    // quote. Parsing again would only re-lex the whole string.
     pub fn could_advance(&self, input: &[u8], seen: usize) -> bool {
         if !self.in_string {
             return true;
@@ -536,8 +535,7 @@ impl<'a> Parser<'a> {
         }
 
         parser.incremental = true;
-        // The @doc desugar can turn one datum into two expressions, and `read`
-        // has to return exactly the datum that was written.
+        // The @doc desugar can turn one datum into two expressions
         parser.collect_doc_comments = false;
         parser.more_to_come = more_to_come;
         parser.input_len = input.len() as u32;
@@ -1314,9 +1312,8 @@ impl<'a> Parser<'a> {
             owner_base: _,
         } = pending;
 
-        // Each prefix recurses, so the reader limits how deep they can nest. Its
-        // input is untrusted and it can run on any thread. Source files are not
-        // limited.
+        // Each prefix recurses, and the reader's input is untrusted. Source files
+        // are not limited.
         if self.incremental && self.prefix_depth >= MAX_PREFIX_DEPTH {
             return Err(self.too_deep(span));
         }

@@ -194,9 +194,13 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 }
 
 /// Takes a filename `path` referring to a file to be created and returns an output port.
-/// `exists` says what to do when the file is already there: `'error` raises, `'truncate` drops
-/// what was in it, `'append` writes at the end, `'update` keeps it and positions the port at the
-/// start, and `'can-update` does the same but also creates the file when it is missing.
+/// `exists` controls what happens when the file already exists:
+///
+/// * `'error` raises an error
+/// * `'truncate` empties the file
+/// * `'append` writes at the end of the file
+/// * `'update` keeps the contents and starts at the beginning. Raises if the file is missing
+/// * `'can-update` is like `'update`, but creates the file if it is missing
 ///
 /// (open-output-file path [#:exists exists]) -> output-port?
 ///
@@ -214,10 +218,9 @@ pub fn open_output_file(args: &[SteelVal]) -> Result<SteelVal> {
     SteelPort::new_textual_file_output_with_options(&path, opts).map(SteelVal::PortV)
 }
 
-/// Takes a filename `path` and returns a port that both reads and writes that file. The
-/// two directions share one position: a write lands where the last read left off, and a
-/// read picks up after the last write. `exists` works as it does on `open-output-file`,
-/// except that it defaults to `'can-update`, which keeps an existing file.
+/// Takes a filename `path` and returns a port that both reads and writes that file.
+/// Reads and writes share one position. `exists` is the same as for `open-output-file`,
+/// except that it defaults to `'can-update`.
 ///
 /// (open-input-output-file path [#:exists exists]) -> port?
 ///
@@ -652,9 +655,9 @@ pub fn flush_output_port(port: &SteelPort) -> Result<SteelVal> {
     port.flush().map(|_| SteelVal::Void)
 }
 
-/// Returns where the next read or write on a port will land, in bytes from the
-/// start of the stream. Only file ports and string ports have a position, and a
-/// file opened with `#:exists 'append` reports zero until something is written.
+/// Returns the position of a port, in bytes from the start of the stream. Only
+/// file ports and string ports have a position. A file opened with
+/// `#:exists 'append` reports zero until something is written.
 ///
 /// (port-position port) -> int?
 ///
@@ -665,8 +668,8 @@ pub fn port_position(port: &SteelPort) -> Result<SteelVal> {
 }
 
 /// Moves a port to `position` bytes from the start of the stream, or to the end
-/// if given the eof object. A file opened with `#:exists 'append` is written at
-/// the end no matter where its port is positioned.
+/// if given the eof object. A file opened with `#:exists 'append` always writes
+/// at the end, regardless of the position.
 ///
 /// (set-port-position! port position) -> void?
 ///
@@ -684,7 +687,7 @@ pub fn set_port_position(port: &SteelPort, position: &SteelVal) -> Result<SteelV
 }
 
 /// Sets the length of the file behind an output port. Bytes past `length` are
-/// dropped, and a `length` past the end reads back as zeros.
+/// dropped. If `length` is past the end, the file is extended with zeros.
 ///
 /// (port-truncate! port length) -> void?
 ///
@@ -695,9 +698,9 @@ pub fn port_truncate(port: &SteelPort, length: u64) -> Result<SteelVal> {
     port.truncate(length).map(|_| SteelVal::Void)
 }
 
-/// Moves a port and returns where it ended up. `whence` says what `offset` counts from:
-/// `SEEK_SET` the start of the stream, `SEEK_CUR` where the port is now, and `SEEK_END`
-/// the end of the stream.
+/// Moves a port and returns the new position. `offset` is relative to `whence`:
+/// `SEEK_SET` is the start of the stream, `SEEK_CUR` is the current position, and
+/// `SEEK_END` is the end of the stream.
 ///
 /// (seek port offset whence) -> int?
 ///
@@ -749,7 +752,7 @@ pub fn port_has_set_position(port: &SteelPort) -> bool {
     port.has_set_position()
 }
 
-/// Flushes a port, and for a file port waits for the os to put the bytes on the
+/// Flushes a port. For a file port, also waits for the os to write the bytes to
 /// disk.
 ///
 /// (port-sync! port) -> void?

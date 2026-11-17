@@ -1,4 +1,21 @@
 # steel/tcp
+### **tcp-abandon-port**
+Closes the output side of a tcp port, like `close-output-port`, but without
+telling the other end. The other end does not see the end of the stream
+until the connection itself is shut down or dropped.
+
+(tcp-abandon-port port) -> void?
+
+* port : port? - a port from `tcp-stream-reader`
+
+#### Examples
+
+```scheme
+(define stream (tcp-connect "127.0.0.1:8080"))
+(define port (tcp-stream-reader stream))
+(tcp-abandon-port port)
+(output-port? port) ;; => #false
+```
 ### **tcp-accept**
 Accept a new incoming connection from this listener.
 

@@ -2022,9 +2022,8 @@ impl crate::rvals::Custom for MutableVector {
     }
 }
 
-// Decodes `pending` for the reader, replacing invalid utf8 with U+FFFD. The
-// port still holds the original bytes, since what follows the datum might not
-// be text. An incomplete sequence at the end is left out unless at eof.
+// Invalid utf8 becomes U+FFFD. An incomplete sequence at the end is left out
+// unless at eof.
 fn lossy_text(pending: &[u8], at_eof: bool) -> Cow<'_, str> {
     let mut text = String::new();
     let mut rest = pending;
@@ -2165,8 +2164,7 @@ enum Outcome {
 
 fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
     let expr = {
-        // Hold the lock for the whole datum, so that two threads reading the
-        // same port do not interleave.
+        // Hold the lock for the whole datum so concurrent readers don't interleave
         let mut guard = port.port.write();
         let mut at_eof = false;
         let mut state = guard.take_parse_state();

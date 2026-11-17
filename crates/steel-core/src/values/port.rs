@@ -540,8 +540,7 @@ fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
     MaybeBlocking::Nonblocking(Some((char::REPLACEMENT_CHARACTER, amt)))
 }
 
-// A read that hits its deadline returns WouldBlock on unix and TimedOut on
-// windows. Without a deadline, TimedOut is a real error.
+// A read that times out is WouldBlock on unix and TimedOut on windows
 fn blocked(err: &io::Error, deadline: bool) -> bool {
     err.kind() == io::ErrorKind::WouldBlock || (deadline && err.kind() == io::ErrorKind::TimedOut)
 }
@@ -578,8 +577,7 @@ fn read_full<R: Read>(
 pub enum SteelPortRepr {
     FileInput(String, Peekable<BufReader<File>>),
     FileOutput(String, BufWriter<File>),
-    // Reads are buffered and writes are not. The file handle can be ahead of
-    // the port's position, so a write has to seek back first.
+    // Reads are buffered, so a write has to seek back over the read ahead first
     FileInputOutput(String, Peekable<BufReader<File>>),
     StdInput(Peekable<Stdin>),
     StdOutput(Stdout),
@@ -1209,9 +1207,20 @@ impl SteelPortRepr {
         *self = SteelPortRepr::Closed;
     }
 
-    // Closes only the output side of a port that is open both ways, leaving
-    // the input side usable. This is what r7rs specifies for sockets.
+    // A port that is open both ways keeps its input side
     pub fn close_output_port(&mut self) -> Result<()> {
+        if let SteelPortRepr::TcpStream(tcp) = self {
+            match tcp.inner.shutdown(std::net::Shutdown::Write) {
+                Err(err) if err.kind() != io::ErrorKind::NotConnected => return Err(err.into()),
+                _ => {}
+            }
+        }
+
+        self.abandon_output_port()
+    }
+
+    // Like `close_output_port`, but does not shut down a tcp connection
+    pub fn abandon_output_port(&mut self) -> Result<()> {
         if !self.is_output() {
             stop!(TypeMismatch => "expected output-port?, found {}", self)
         }
@@ -1233,10 +1242,13 @@ impl SteelPortRepr {
             stop!(TypeMismatch => "expected input-port?, found {}", self)
         }
 
-        *self = match core::mem::replace(self, SteelPortRepr::Closed) {
-            SteelPortRepr::FileInputOutput(name, mut reader) => {
-                reader.rewind_read_ahead()?;
+        // Seek before closing anything, so a failed seek leaves the port unchanged
+        if let SteelPortRepr::FileInputOutput(_, reader) = self {
+            reader.rewind_read_ahead()?;
+        }
 
+        *self = match core::mem::replace(self, SteelPortRepr::Closed) {
+            SteelPortRepr::FileInputOutput(name, reader) => {
                 SteelPortRepr::FileOutput(name, BufWriter::new(reader.inner.into_inner()))
             }
             SteelPortRepr::TcpStream(reader) => {
@@ -1526,6 +1538,14 @@ impl SteelPort {
 
     pub fn close_input_port(&self) -> Result<()> {
         self.port.write().close_input_port()
+    }
+
+    pub fn is_tcp(&self) -> bool {
+        matches!(&*self.port.read(), SteelPortRepr::TcpStream(_))
+    }
+
+    pub fn abandon_output_port(&self) -> Result<()> {
+        self.port.write().abandon_output_port()
     }
 }
 
@@ -2850,13 +2870,14 @@ mod port_tests {
         let (client, mut server) = tcp_pair();
         server.write_all(b"first\nsecond\n").unwrap();
 
-        let mut port = SteelPortRepr::TcpStream(Peekable::new(client.try_clone().unwrap()));
+        let mut port = SteelPortRepr::TcpStream(Peekable::new(client));
         assert_eq!(ready(port.read_line()), (6, "first\n".to_string()));
 
         port.close_output_port().unwrap();
         assert!(port.write(b"x").is_err());
         assert_eq!(ready(port.read_line()), (7, "second\n".to_string()));
 
+        let (client, mut server) = tcp_pair();
         let mut port = SteelPortRepr::TcpStream(Peekable::new(client));
         port.close_input_port().unwrap();
         assert!(!port.is_input());
@@ -2867,6 +2888,43 @@ mod port_tests {
         let mut reply = [0; 6];
         server.read_exact(&mut reply).unwrap();
         assert_eq!(&reply, b"reply\n");
+    }
+
+    #[test]
+    fn closing_the_output_of_a_tcp_port_ends_the_input_of_the_other_end() {
+        let (client, mut server) = tcp_pair();
+        let mut port = SteelPortRepr::TcpStream(Peekable::new(client));
+
+        port.write(b"hello").unwrap();
+        port.close_output_port().unwrap();
+
+        let mut sent = Vec::new();
+        server.read_to_end(&mut sent).unwrap();
+        assert_eq!(sent, b"hello");
+
+        server.write_all(b"reply\n").unwrap();
+        assert_eq!(ready(port.read_line()), (6, "reply\n".to_string()));
+    }
+
+    #[test]
+    fn abandoning_the_output_of_a_tcp_port_does_not_tell_the_other_end() {
+        let (client, mut server) = tcp_pair();
+        let writer = client.try_clone().unwrap();
+        let mut port = SteelPortRepr::TcpStream(Peekable::new(client));
+
+        port.abandon_output_port().unwrap();
+        assert!(port.write(b"x").is_err());
+
+        server
+            .set_read_timeout(Some(std::time::Duration::from_millis(100)))
+            .unwrap();
+        let err = server.read(&mut [0; 1]).unwrap_err();
+        assert!(blocked(&err, true), "the other end saw {err}");
+
+        (&writer).write_all(b"more\n").unwrap();
+        let mut line = [0; 5];
+        server.read_exact(&mut line).unwrap();
+        assert_eq!(&line, b"more\n");
     }
 
     #[test]

@@ -206,8 +206,8 @@
       (and (>= status 100) (< status 200))))
 
 (define (body-mode headers status method)
-  ;; If the encodings are anything but exactly chunked, the sender and this
-  ;; client do not agree on where the body ends
+  ;; With any encoding other than exactly chunked, the end of the body is
+  ;; ambiguous
   (define encodings (header-tokens headers "Transfer-Encoding"))
   (define declared (content-length headers))
   (cond
@@ -222,8 +222,8 @@
     [else 'until-close]))
 
 ;;@doc
-;; Reads one response off `reader`. `method` is needed because a `HEAD`
-;; response carries the headers of a body it does not send.
+;; Reads one response from `reader`. A response to a `HEAD` request has no
+;; body, so pass the request's `method`.
 (define (http-read-response reader #:method [method "GET"])
   (define status-line (read-status-line-past-interim reader))
   (define status (list-ref status-line 1))

@@ -38,9 +38,8 @@ impl RustlsClientConnection {
         let root_store = RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.into(),
         };
-        // ClientConfig::builder panics if both of rustls' aws-lc-rs and ring
-        // features are on, and anything else in the build can turn on the other
-        // one (ureq does), so name the provider here
+        // ClientConfig::builder panics if both rustls providers are enabled, and
+        // another crate in the build can enable the second one (ureq does)
         let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
         let mut config = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()

@@ -365,8 +365,8 @@
     [else #f]))
 
 ;;@doc
-;; Decodes percent escapes. With `#:form`, a `+` decodes as a space, the way a
-;; form encoded query writes one.
+;; Decodes percent escapes. With `#:form`, a `+` also decodes as a space, as
+;; in a form encoded query.
 ;;
 ;; (url-decode str [#:form form]) -> string?
 ;;
