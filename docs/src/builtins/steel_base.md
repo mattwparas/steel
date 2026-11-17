@@ -1292,6 +1292,18 @@ Recursively copies the contents of the source directory to the destination.
 ```scheme
 > (copy-directory-recursively! "logs" "backup") ;;
 ```
+### **copy-file!**
+copies the the source file to the destination.
+
+(copy-file! source destination) -> void?
+
+* source : (string?) - The file to copy.
+* destination : (string?) - The destination to which to copy the file.
+
+#### Examples
+```scheme
+> (copy-file! "logs/today.json" "logs/tomorrow.json") ;;
+```
 ### **cos**
 Returns the cosine value of the input angle, measured in radians.
 
