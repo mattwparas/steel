@@ -1136,7 +1136,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn every_waiting_read_raises_alike() {
+    fn waiting_reads_return_the_same_error() {
         let raises: Vec<(&str, String)> = vec![
             ("read-line", read_line(&blocked_port()).unwrap_err()),
             (
@@ -1166,7 +1166,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn a_waiting_read_raises_on_any_port() {
+    fn waiting_read_errors_on_any_port() {
         let (tcp, _client) = blocked_tcp_port();
 
         assert_eq!(
@@ -1177,7 +1177,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn a_timeout_reports_alike_on_any_os() {
+    fn timeout_reports_alike_on_any_os() {
         assert!(
             would_block_objectp(&read_line_ready(&timed_out_port()).unwrap()),
             "read-line* reported a timed out read as something other than would-block"
@@ -1211,7 +1211,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn a_timeout_reports_as_a_block() {
+    fn timeout_reports_as_a_block() {
         let (timed_out, _client) = timed_out_tcp_port(50);
 
         assert!(
@@ -1230,7 +1230,7 @@ mod would_block_tests {
     }
 
     #[test]
-    fn a_timeout_keeps_what_arrived() {
+    fn timeout_keeps_what_arrived() {
         let (timed_out, mut client) = timed_out_tcp_port(500);
 
         client.write_all(b"ab").unwrap();

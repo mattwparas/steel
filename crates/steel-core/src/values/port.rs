@@ -1784,7 +1784,7 @@ mod port_tests {
     }
 
     #[test]
-    fn the_chunk_grows_while_unfinished() {
+    fn chunk_grows_while_unfinished() {
         let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd", b"ef"]));
         assert_eq!(peekable.chunk, MIN_CHUNK);
 
@@ -1803,7 +1803,7 @@ mod port_tests {
     }
 
     #[test]
-    fn the_chunk_resets_on_consume() {
+    fn chunk_resets_on_consume() {
         let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd"]));
 
         ready(peekable.fill_chunk(usize::MAX));
@@ -1815,7 +1815,7 @@ mod port_tests {
     }
 
     #[test]
-    fn the_chunk_is_capped() {
+    fn chunk_is_capped() {
         let mut peekable = Peekable::new(Chunks::new(&[b"ab", b"cd", b"ef"]));
 
         ready(peekable.fill_chunk(4));
@@ -1825,7 +1825,7 @@ mod port_tests {
     }
 
     #[test]
-    fn an_interrupted_read_is_retried() {
+    fn interrupted_read_is_retried() {
         let mut peekable = Peekable::new(Interrupts { interrupted: false });
 
         let amt = ready(peekable.fill_chunk(usize::MAX));
@@ -1835,7 +1835,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_blocked_source_leaves_the_buffer() {
+    fn blocked_source_leaves_the_buffer() {
         let mut peekable = Peekable::new(Stalls::new(&[Some(b"abc"), None]));
 
         ready(peekable.fill_chunk(usize::MAX));
@@ -1854,7 +1854,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_timeout_reads_as_would_block() {
+    fn timeout_reads_as_would_block() {
         let mut peekable = Peekable::with_deadline(RanOutOfTime);
 
         assert!(is_blocked(peekable.fill_chunk(usize::MAX)));
@@ -1867,7 +1867,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_timeout_keeps_what_it_took() {
+    fn timeout_keeps_what_it_took() {
         let mut peekable = Peekable::with_deadline(Timeouts {
             before: Some(b"abc"),
         });
@@ -1878,7 +1878,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_timeout_without_a_deadline_errors() {
+    fn timeout_without_a_deadline_errors() {
         let mut peekable = Peekable::new(Timeouts {
             before: Some(b"abc"),
         });
@@ -2095,7 +2095,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_broken_read_keeps_its_bytes() {
+    fn broken_read_keeps_its_bytes() {
         let mut reader = Breaks {
             before: Some(b"abc"),
         };
@@ -2316,7 +2316,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_string_port_never_overreads() {
+    fn string_port_never_overreads() {
         let mut port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abc".to_vec())));
 
         assert!(port.at_source_start());
@@ -2421,7 +2421,7 @@ mod port_tests {
 
     #[cfg(unix)]
     #[test]
-    fn as_stdio_refuses_an_unseekable_port() {
+    fn as_stdio_errors_on_an_unseekable_port() {
         use std::os::unix::io::{FromRawFd, IntoRawFd};
 
         let (mut writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
@@ -2444,7 +2444,7 @@ mod port_tests {
     }
 
     #[test]
-    fn as_stdio_refuses_a_plain_port() {
+    fn as_stdio_errors_on_a_plain_port() {
         let port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abc".to_vec())));
 
         let Err(err) = port.as_stdio() else {
@@ -2456,7 +2456,7 @@ mod port_tests {
     }
 
     #[test]
-    fn as_stdio_refuses_a_closed_port() {
+    fn as_stdio_errors_on_a_closed_port() {
         let Err(err) = SteelPortRepr::Closed.as_stdio() else {
             panic!("a closed port has no handle to give a child");
         };
@@ -2573,7 +2573,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_tcp_port_reads_lines() {
+    fn tcp_port_reads_lines() {
         let mut port = tcp_port(b"first\nsecond\n");
 
         assert_eq!(ready(port.read_line()), (6, "first\n".to_string()));
@@ -2582,7 +2582,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_tcp_port_peeks_then_reads() {
+    fn tcp_port_peeks_then_reads() {
         let mut port = tcp_port("λ rest".as_bytes());
 
         assert_eq!(ready(port.peek_char()), Some('λ'));
@@ -2592,7 +2592,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_tcp_port_reads_after_a_peek() {
+    fn tcp_port_reads_after_a_peek() {
         let mut port = tcp_port(b"abc");
 
         assert_eq!(ready(port.peek_byte()), Some(b'a'));
@@ -2600,7 +2600,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_tcp_port_writes() {
+    fn tcp_port_writes() {
         let (client, server) = tcp_pair();
         let mut port = SteelPortRepr::TcpStream(Peekable::new(client));
 
@@ -2613,7 +2613,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_dyn_port_reads_lines() {
+    fn dyn_port_reads_lines() {
         let reader: Box<dyn Read + Send + Sync> = Box::new(Cursor::new(b"first\nsecond".to_vec()));
         let mut port = SteelPortRepr::DynReader(Peekable::new(BufReader::new(reader)));
 
@@ -2621,7 +2621,7 @@ mod port_tests {
     }
 
     #[test]
-    fn the_standard_error_port_flushes() {
+    fn standard_error_port_flushes() {
         let mut port = SteelPortRepr::StdError(io::stderr());
 
         assert!(port.flush().is_ok());
@@ -2648,7 +2648,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_seek_drops_the_read_ahead() {
+    fn seek_drops_the_read_ahead() {
         let temp = TempFile::new("position-seek", b"0123456789");
         let (file, _) = temp.open();
         let mut port = SteelPortRepr::FileInput(temp.name(), Peekable::new(BufReader::new(file)));
@@ -2667,7 +2667,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_seek_to_the_end_is_the_length() {
+    fn seek_to_the_end_is_the_length() {
         let temp = TempFile::new("position-end", b"0123456789");
         let (file, _) = temp.open();
         let mut port = SteelPortRepr::FileInput(temp.name(), Peekable::new(BufReader::new(file)));
@@ -2687,7 +2687,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_write_lands_at_the_position() {
+    fn write_lands_at_the_position() {
         let temp = TempFile::new("seek-write", b"0123456789");
         let mut port = writable(&temp);
 
@@ -2699,7 +2699,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_seek_keeps_what_was_written() {
+    fn seek_keeps_what_was_written() {
         let temp = TempFile::new("seek-flush", b"0123456789");
         let mut port = writable(&temp);
 
@@ -2734,7 +2734,7 @@ mod port_tests {
     }
 
     #[test]
-    fn an_input_port_cannot_be_truncated() {
+    fn truncating_an_input_port_errors() {
         let temp = TempFile::new("truncate-input", b"0123456789");
         let (file, _) = temp.open();
         let mut port = SteelPortRepr::FileInput(temp.name(), Peekable::new(BufReader::new(file)));
@@ -2743,7 +2743,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_string_port_has_a_position() {
+    fn string_port_has_a_position() {
         let mut port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abcdef".to_vec())));
 
         let mut buf = [0; 2];
@@ -2755,7 +2755,7 @@ mod port_tests {
     }
 
     #[test]
-    fn an_output_string_port_only_reports_a_position() {
+    fn output_string_port_only_reports_a_position() {
         let mut port = SteelPortRepr::StringOutput(Vec::new());
         port.write(b"abc").unwrap();
 
@@ -2764,7 +2764,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_closed_port_has_no_position() {
+    fn closed_port_has_no_position() {
         let mut port = SteelPortRepr::Closed;
 
         assert!(port.position().is_err());
@@ -2774,7 +2774,7 @@ mod port_tests {
 
     #[cfg(unix)]
     #[test]
-    fn an_unseekable_port_has_no_position() {
+    fn unseekable_port_has_no_position() {
         use std::os::unix::io::{FromRawFd, IntoRawFd};
 
         let (mut writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
@@ -2792,7 +2792,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_seek_that_fails_keeps_the_read_ahead() {
+    fn seek_that_fails_keeps_the_read_ahead() {
         let mut port = SteelPortRepr::StringInput(Peekable::new(Cursor::new(b"abcdef".to_vec())));
 
         assert_eq!(ready(port.fill_more()), 6);
@@ -2811,7 +2811,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_read_write_port_is_both() {
+    fn read_write_port_is_both() {
         let temp = TempFile::new("read-write-both", b"0123456789");
         let port = read_write(&temp);
 
@@ -2862,7 +2862,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_tcp_port_closes_one_side_at_a_time() {
+    fn tcp_port_closes_one_side_at_a_time() {
         let (client, mut server) = tcp_pair();
         server.write_all(b"first\nsecond\n").unwrap();
 
@@ -2924,7 +2924,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_write_lands_where_the_reads_left_off() {
+    fn write_lands_where_the_reads_left_off() {
         let temp = TempFile::new("read-write-after-read", b"0123456789");
         let mut port = read_write(&temp);
 
@@ -2939,7 +2939,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_read_picks_up_after_a_write() {
+    fn read_picks_up_after_a_write() {
         let temp = TempFile::new("read-write-after-write", b"0123456789");
         let mut port = read_write(&temp);
 
@@ -2951,7 +2951,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_read_write_port_seeks() {
+    fn read_write_port_seeks() {
         let temp = TempFile::new("read-write-seek", b"0123456789");
         let mut port = read_write(&temp);
 
@@ -2965,7 +2965,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_relative_seek_counts_from_the_program() {
+    fn relative_seek_counts_from_the_program() {
         let temp = TempFile::new("read-write-relative", b"0123456789");
         let mut port = read_write(&temp);
 
@@ -2977,7 +2977,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_seek_before_the_start_is_refused() {
+    fn seek_before_the_start_errors() {
         let temp = TempFile::new("read-write-under", b"0123456789");
         let mut port = read_write(&temp);
 
@@ -2998,7 +2998,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_read_write_port_syncs() {
+    fn read_write_port_syncs() {
         let temp = TempFile::new("read-write-sync", b"0123456789");
         let mut port = read_write(&temp);
 
@@ -3032,7 +3032,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_line_with_malformed_bytes_substitutes() {
+    fn line_with_malformed_bytes_substitutes() {
         let temp = TempFile::new("line-not-utf8", b"a\xffb\nsecond\n");
         let (file, _) = temp.open();
         let mut port = SteelPortRepr::FileInput(temp.name(), Peekable::new(BufReader::new(file)));
@@ -3042,7 +3042,7 @@ mod port_tests {
     }
 
     #[test]
-    fn the_whole_source_with_malformed_bytes_substitutes() {
+    fn whole_source_with_malformed_bytes_substitutes() {
         let temp = TempFile::new("all-not-utf8", b"a\xffb\nsecond\n");
         let (file, _) = temp.open();
         let mut port = SteelPortRepr::FileInput(temp.name(), Peekable::new(BufReader::new(file)));
@@ -3054,7 +3054,7 @@ mod port_tests {
     }
 
     #[test]
-    fn a_sequence_cut_short_at_the_end_substitutes() {
+    fn sequence_cut_short_at_the_end_substitutes() {
         let temp = TempFile::new("cut-short", b"ab\xe5\x8d");
         let (file, _) = temp.open();
         let mut port = SteelPortRepr::FileInput(temp.name(), Peekable::new(BufReader::new(file)));

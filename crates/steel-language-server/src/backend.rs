@@ -2448,7 +2448,7 @@ mod position_conversion_tests {
     }
 
     #[test]
-    fn out_of_range_offsets_and_positions_are_rejected() {
+    fn out_of_range_offsets_and_positions_return_none() {
         let source = r#"(define x 1)
 (display "héllo 😀")
 "#;

@@ -176,12 +176,12 @@ mod tests {
     }
 
     #[test]
-    fn a_group_that_fits_stays_on_one_line() {
+    fn group_that_fits_stays_on_one_line() {
         assert_eq!(call("list", &["a", "b", "c"]).pretty(12), "(list a b c)");
     }
 
     #[test]
-    fn a_group_that_does_not_fit_breaks_every_line_in_it() {
+    fn group_that_does_not_fit_breaks_every_line_in_it() {
         assert_eq!(
             call("list", &["a", "b", "c"]).pretty(11),
             "(list\n a\n b\n c)"
@@ -197,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn an_inner_group_can_stay_flat_inside_a_broken_one() {
+    fn inner_group_can_stay_flat_inside_a_broken_one() {
         let inner = call("f", &["x", "y"]);
         let doc = Doc::text("(define")
             .append(Doc::line())
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn a_newline_indents_to_the_depth_of_what_follows_it() {
+    fn newline_indents_to_the_depth_of_what_follows_it() {
         let doc = Doc::text("(")
             .append(Doc::text("a").append(Doc::line()).nest(4))
             .append(Doc::text("b)"));

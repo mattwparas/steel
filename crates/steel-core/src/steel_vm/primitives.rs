@@ -3083,7 +3083,7 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_number_spans_a_read_boundary() {
+    fn number_spans_a_read_boundary() {
         let port = stream(&["4", "2", " "], true);
         assert_eq!(read_one(&port).unwrap(), whole("42"));
     }
@@ -3126,14 +3126,14 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_blocked_source_does_not_wait() {
+    fn blocked_source_does_not_wait() {
         let port = port_over(Blocks);
 
         assert!(would_block_objectp(&read_one(&port).unwrap()));
     }
 
     #[test]
-    fn a_sequence_cut_short_waits_for_the_rest() {
+    fn sequence_cut_short_waits_for_the_rest() {
         let port = byte_stream(&[b"\xe5", b"\x8d", b"\x83", b" "], false);
 
         assert_eq!(datums(&port), vec![SteelVal::SymbolV("\u{5343}".into())]);
@@ -3178,14 +3178,14 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_character_split_across_reads() {
+    fn character_split_across_reads() {
         let port = byte_stream(&[b"(a \xc3", b"\xa9)"], true);
 
         assert_eq!(read_one(&port).unwrap(), whole("(a \u{e9})"));
     }
 
     #[test]
-    fn a_cut_sequence_joins_the_token_in_front_of_it() {
+    fn cut_sequence_joins_the_token_in_front_of_it() {
         let port = SteelPort::new_input_port_bytevector(vec![b'4', b'2', 0xC3]);
 
         assert_eq!(datums(&port), vec![whole("42\u{fffd}")]);
@@ -3213,7 +3213,7 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_stalling_source_still_reads() {
+    fn stalling_source_still_reads() {
         let port = trickle("(a b c)", 3, true);
 
         let (value, retries) = read_until_ready(&port);
@@ -3223,7 +3223,7 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_block_keeps_the_parsers_place() {
+    fn block_keeps_the_parsers_place() {
         let port = trickle("(a b c)", 4, true);
 
         assert!(would_block_objectp(&read_one(&port).unwrap()));
@@ -3289,7 +3289,7 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_socket_keeps_the_parsers_place() {
+    fn socket_keeps_the_parsers_place() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, _) = listener.accept().unwrap();
@@ -3326,14 +3326,14 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_datum_before_malformed_bytes() {
+    fn datum_before_malformed_bytes() {
         let port = SteelPort::new_input_port_bytevector(vec![b'(', b'a', b')', b' ', 0xFF]);
 
         assert_eq!(datums(&port), vec![whole("(a)"), whole("\u{fffd}")]);
     }
 
     #[test]
-    fn an_error_leaves_the_rest() {
+    fn error_leaves_the_rest() {
         let port = SteelPort::new_input_port_string(") (a)".to_string());
 
         assert!(read_one(&port).is_err());
@@ -3341,14 +3341,14 @@ mod read_datum_tests {
     }
 
     #[test]
-    fn a_datum_comment_is_skipped() {
+    fn datum_comment_is_skipped() {
         let port = SteelPort::new_input_port_string("#;(a) (b)".to_string());
 
         assert_eq!(read_one(&port).unwrap(), whole("(b)"));
     }
 
     #[test]
-    fn a_datum_comment_split_across_reads() {
+    fn datum_comment_split_across_reads() {
         let port = stream(&["#;(a", ") (b", ")"], true);
 
         assert_eq!(read_one(&port).unwrap(), whole("(b)"));

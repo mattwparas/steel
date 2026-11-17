@@ -189,7 +189,7 @@ mod rustls_tests {
     }
 
     #[test]
-    fn a_false_timeout_waits_forever() {
+    fn false_timeout_waits_forever() {
         let (mut stream, _client) = connected();
 
         set_read_timeout(&mut stream, Some(250)).unwrap();
@@ -199,7 +199,7 @@ mod rustls_tests {
     }
 
     #[test]
-    fn a_zero_timeout_is_refused() {
+    fn zero_timeout_errors() {
         let (mut stream, _client) = connected();
 
         for ms in [0, -1] {

@@ -132,7 +132,7 @@ fn chunked_matches_one_shot() {
 }
 
 #[test]
-fn a_long_datum_matches_one_shot() {
+fn long_datum_matches_one_shot() {
     for input in shapes() {
         for chunk in [1usize, 3, 17, 256] {
             if let Err(err) = check(&input, chunk) {
@@ -143,7 +143,7 @@ fn a_long_datum_matches_one_shot() {
 }
 
 #[test]
-fn a_long_datum_is_not_reparsed() {
+fn long_datum_is_not_reparsed() {
     for shape in shapes() {
         let factor = relex_ratio(&shape, 1);
 
@@ -209,7 +209,7 @@ fn drain(input: &str, chunk: usize) -> Vec<String> {
 }
 
 #[test]
-fn the_compiler_desugars_a_doc_comment() {
+fn compiler_desugars_a_doc_comment() {
     let expressions = Parser::new_flat(DOC_COMMENTED, SourceId::none())
         .map(|expr| expr.unwrap().to_string())
         .collect::<Vec<_>>();
@@ -225,7 +225,7 @@ fn the_compiler_desugars_a_doc_comment() {
 }
 
 #[test]
-fn the_reader_hands_back_the_datum_instead() {
+fn reader_hands_back_the_datum_instead() {
     let expected = [
         "(define-syntax m (syntax-rules () ((_) 1)))".to_string(),
         "(tail)".to_string(),
@@ -245,7 +245,7 @@ fn suspended(input: &str) -> ParserState {
 }
 
 #[test]
-fn a_string_cut_short_waits_for_its_closing_quote() {
+fn string_cut_short_waits_for_its_closing_quote() {
     static ARRIVALS: [(&str, &str, bool); 7] = [
         ("(a \"bc", "de (f) ; g", false),
         ("(a \"bc", "de\" f)", true),

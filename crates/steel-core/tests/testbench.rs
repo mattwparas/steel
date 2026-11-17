@@ -470,7 +470,7 @@ fn filter_test() {
 }
 
 #[test]
-fn the_ready_readers_work_from_steel() {
+fn ready_readers_work_from_steel() {
     let mut vm = Engine::new();
 
     vm.compile_and_run_raw_program(

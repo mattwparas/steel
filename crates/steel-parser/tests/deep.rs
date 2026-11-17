@@ -43,7 +43,7 @@ fn nesting_past_the_cap() {
 }
 
 #[test]
-fn a_source_file_nests_past_the_cap() {
+fn source_file_nests_past_the_cap() {
     static SOURCES: [(&str, &str); 2] = [("'", ""), ("'(a ", ")")];
 
     std::thread::Builder::new()
@@ -69,7 +69,7 @@ fn a_source_file_nests_past_the_cap() {
 }
 
 #[test]
-fn a_failed_read_drops_a_datum_comment() {
+fn failed_read_drops_a_datum_comment() {
     let parsed: Vec<_> = Parser::new_flat("#;(a] 1 2", SourceId::none())
         .map(|res| res.map(|expr| expr.to_string()).map_err(|_| ()))
         .collect();

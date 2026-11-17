@@ -646,7 +646,7 @@ mod process_tests {
     }
 
     #[test]
-    fn with_stdin_rejects_an_output_port() {
+    fn with_stdin_errors_on_an_output_port() {
         let port = SteelPort::new_output_port_string();
         let err = with_stdin(builder(), SteelVal::PortV(port)).unwrap_err();
 
@@ -656,7 +656,7 @@ mod process_tests {
     }
 
     #[test]
-    fn with_stdin_rejects_a_closed_port() {
+    fn with_stdin_errors_on_a_closed_port() {
         let port = SteelPort::new_input_port_string("(a) remainder".to_string());
         port.close_port();
         let err = with_stdin(builder(), SteelVal::PortV(port)).unwrap_err();
@@ -667,7 +667,7 @@ mod process_tests {
     }
 
     #[test]
-    fn with_stdout_rejects_an_input_port() {
+    fn with_stdout_errors_on_an_input_port() {
         let port = SteelPort::new_input_port_string("(a) remainder".to_string());
         let err = with_stdout(builder(), SteelVal::PortV(port)).unwrap_err();
 
@@ -677,7 +677,7 @@ mod process_tests {
     }
 
     #[test]
-    fn with_stderr_rejects_an_input_port() {
+    fn with_stderr_errors_on_an_input_port() {
         let port = SteelPort::new_input_port_string("(a) remainder".to_string());
         let err = with_stderr(builder(), SteelVal::PortV(port)).unwrap_err();
 
@@ -687,7 +687,7 @@ mod process_tests {
     }
 
     #[test]
-    fn with_stdin_rejects_a_non_port() {
+    fn with_stdin_errors_on_a_non_port() {
         let err = with_stdin(builder(), SteelVal::IntV(1)).unwrap_err();
 
         assert!(err
