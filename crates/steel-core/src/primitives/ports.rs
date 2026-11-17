@@ -1137,7 +1137,7 @@ mod would_block_tests {
 
     #[test]
     fn waiting_reads_return_the_same_error() {
-        let raises: Vec<(&str, String)> = vec![
+        let errors: Vec<(&str, String)> = vec![
             ("read-line", read_line(&blocked_port()).unwrap_err()),
             (
                 "read-line-from-port",
@@ -1156,11 +1156,11 @@ mod would_block_tests {
         .map(|(name, err)| (name, err.message().to_string()))
         .collect();
 
-        for (name, message) in &raises {
+        for (name, message) in &errors {
             assert_eq!(
-                message, &raises[0].1,
+                message, &errors[0].1,
                 "{name} describes a blocked port differently from {}",
-                raises[0].0
+                errors[0].0
             );
         }
     }

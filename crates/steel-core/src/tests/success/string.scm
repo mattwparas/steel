@@ -34,4 +34,4 @@
 (assert-equal! (string-contains? "" #\a) #false)
 (assert-equal! (string-contains? "aλb" #\λ) #true)
 (assert-equal! (string-contains? "abc" #\λ) #false)
-(assert-equal! (with-handler (lambda (err) 'raised) (string-contains? "hello" 1)) 'raised)
+(assert-equal! (with-handler (lambda (err) 'err) (string-contains? "hello" 1)) 'err)

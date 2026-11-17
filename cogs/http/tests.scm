@@ -105,8 +105,8 @@
  (check-equal? "parse-url on a parsed url"
                "http://a/b"
                (url->string (parse-url (parse-url "http://a/b"))))
- (check-err? "url with no host errors" (parse-url "http:///just-a-path") 'raises)
- (check-err? "non-numeric port errors" (parse-url "http://a:http/") 'raises)
+ (check-err? "url with no host errors" (parse-url "http:///just-a-path") 'error)
+ (check-err? "non-numeric port errors" (parse-url "http://a:http/") 'error)
  (check-equal? "url-encode escapes reserved characters"
                "a%20b%2Fc%3Fd%3D%C3%A9"
                (url-encode "a b/c?d=é"))
@@ -155,9 +155,9 @@
                (let ([url (parse-url "localhost:8080/x")]) (list (url-host url) (url-port url))))
  (check-err? "resolve reference with unsupported scheme errors"
              (url-join "http://a/b" "mailto:someone@example.com")
-             'raises)
- (check-err? "url with unsupported scheme errors" (parse-url "mailto:someone@example.com") 'raises)
- (check-err? "host with colon outside brackets errors" (parse-url "http://a:1:2/") 'raises))
+             'error)
+ (check-err? "url with unsupported scheme errors" (parse-url "mailto:someone@example.com") 'error)
+ (check-err? "host with colon outside brackets errors" (parse-url "http://a:1:2/") 'error))
 
 (test-module
  "http-headers-tests"
@@ -191,9 +191,9 @@
  (check-equal? "header line without colon" #f (parse-header-line "nocolon"))
  (check-err? "newline in header value errors"
              (normalize-headers (list (cons "X" "a\r\nY: b")))
-             'raises)
- (check-err? "colon in header name errors" (normalize-headers (list (cons "X:Y" "a"))) 'raises)
- (check-err? "space in header name errors" (normalize-headers (list (cons "X Y" "a"))) 'raises)
+             'error)
+ (check-err? "colon in header name errors" (normalize-headers (list (cons "X:Y" "a"))) 'error)
+ (check-err? "space in header name errors" (normalize-headers (list (cons "X Y" "a"))) 'error)
  (check-equal? "token punctuation in header name"
                "X-Not_A.Token!: 1\r\n"
                (headers->string (header-add '() "X-Not_A.Token!" 1))))
@@ -209,8 +209,8 @@
                (bytes 0 255 128)
                (base64-decode (base64-encode (bytes 0 255 128))))
  (check-equal? "base64 decode ignores whitespace" (bytes 102 111 111) (base64-decode "Zm\n9v"))
- (check-err? "base64 decode invalid digit errors" (base64-decode "a*b") 'raises)
- (check-err? "base64 decode digit after padding errors" (base64-decode "QQ=A") 'raises)
+ (check-err? "base64 decode invalid digit errors" (base64-decode "a*b") 'error)
+ (check-err? "base64 decode digit after padding errors" (base64-decode "QQ=A") 'error)
  (check-equal? "base64 round trip, many groups"
                #t
                (let ([long (apply string-append (map (lambda (n) "0123456789") (range 0 30)))])
@@ -321,62 +321,62 @@
  (check-err? "conflicting Content-Length errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Length: 3\r\n\r\nab")
                        (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err?
   "chunked with Content-Length errors"
   (reply-to
    (list "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n")
    (lambda () (http-get "http://x/")))
-  'raises)
+  'error)
  (check-err? "unknown Transfer-Encoding errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\nxx")
                        (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err? "chunked plus another Transfer-Encoding errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n")
                        (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err? "Transfer-Encoding split over two header lines"
              (reply-to (list (string-append "HTTP/1.1 200 OK\r\n"
                                             "Transfer-Encoding: chunked\r\n"
                                             "Transfer-Encoding: gzip\r\n\r\n"
                                             "5\r\nhello\r\n0\r\n\r\n"))
                        (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err? "truncated response body errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nContent-Length: 20\r\n\r\nshort")
                        (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err? "invalid status line errors"
              (reply-to (list "not http at all\r\n\r\n") (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err? "unterminated head errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nA: b") (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err? "non-numeric chunk size errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n")
                        (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err?
   "signed chunk size errors"
   (reply-to (list "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n+5\r\nhello\r\n0\r\n\r\n")
             (lambda () (http-get "http://x/")))
-  'raises)
+  'error)
  (check-err? "signed Content-Length errors"
              (reply-to (list "HTTP/1.1 200 OK\r\nContent-Length: +2\r\n\r\nab")
                        (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err? "unterminated header line errors"
              (reply-to (list (string-append "HTTP/1.1 200 OK\r\nX: "
                                             (apply string-append
                                                    (map (lambda (n) "0123456789")
                                                         (range 0 (quotient *max-line-length* 5))))))
                        (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err? "unsupported http version errors"
              (reply-to (list "HTTP/2 200 OK\r\nContent-Length: 0\r\n\r\n")
                        (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-equal?
   "large response body"
   (list 70000 #t)
@@ -394,12 +394,12 @@
                                                                   (range 0 (+ *max-header-lines* 1))))
                                             "\r\n"))
                        (lambda () (http-get "http://x/")))
-             'raises)
+             'error)
  (check-err? "too many interim responses errors"
              (reply-to (list (apply string-append
                                     (map (lambda (n) "HTTP/1.1 100 Continue\r\n\r\n") (range 0 20))))
                        (lambda () (http-get "http://x/")))
-             'raises))
+             'error))
 
 (test-module
  "http-request-tests"
@@ -502,10 +502,10 @@
                 "Connection: close\r\n"))
  (check-err? "body and form together errors"
              (make-request "POST" "http://x/" #:body "a" #:form (list (cons "b" "c")))
-             'raises)
+             'error)
  (check-err? "body that is not a string or bytes errors"
              (make-request "POST" "http://x/" #:body 42)
-             'raises))
+             'error))
 
 (test-module
  "http-redirect-tests"
@@ -582,7 +582,7 @@
  (check-err? "too many redirects errors"
              (reply-to (list (redirect-to "/1") (redirect-to "/2"))
                        (lambda () (http-get "http://a/" #:follow 1)))
-             'raises))
+             'error))
 
 (test-module
  "http-socket-tests"
@@ -674,14 +674,14 @@
 
 (test-module
  "http-framing-tests"
- (check-err? "newline in path errors" (parse-url "http://x/a\r\nX-Evil: 1") 'raises)
- (check-err? "newline in query errors" (parse-url "http://x/a?b=1\nX: 2") 'raises)
- (check-err? "space in host errors" (parse-url "http://ev il/a") 'raises)
- (check-err? "space in path errors" (parse-url "http://x/a b") 'raises)
+ (check-err? "newline in path errors" (parse-url "http://x/a\r\nX-Evil: 1") 'error)
+ (check-err? "newline in query errors" (parse-url "http://x/a?b=1\nX: 2") 'error)
+ (check-err? "space in host errors" (parse-url "http://ev il/a") 'error)
+ (check-err? "space in path errors" (parse-url "http://x/a b") 'error)
  (check-equal? "escaped space in path" "/a%20b" (url-target (parse-url "http://x/a%20b")))
  (check-err? "method containing a request line errors"
              (http-send "GET /evil HTTP/1.1\r\nX" "http://x/")
-             'raises)
+             'error)
  (check-equal? "method as symbol"
                "DELETE /x HTTP/1.1"
                (request-line (request-text (requests-of (list *ok*)
@@ -693,11 +693,11 @@
                          (http-post "http://x/"
                                     #:body "a"
                                     #:headers (list (cons "Transfer-Encoding" "chunked")))))
-             'raises)
- (check-err? "negative redirect count errors" (http-get "http://x/" #:follow -1) 'raises)
+             'error)
+ (check-err? "negative redirect count errors" (http-get "http://x/" #:follow -1) 'error)
  (check-err? "method that is not a token errors"
              (make-request (string-append "GET" (string (integer->char 127))) "http://x/")
-             'raises)
+             'error)
  (check-equal?
   "100 Continue is skipped"
   (list 200 "ok")
@@ -817,7 +817,7 @@
    "X-Long"))
  (check-err? "unreadable request errors"
              (http-read-request (open-input-string "nonsense\r\n\r\n"))
-             'raises)
+             'error)
  (check-equal? "leading crlf before request line is skipped"
                "/a"
                (request-target (http-read-request (open-input-string (string-append "\r\n" *get*)))))
@@ -912,8 +912,8 @@
              (http-write-response!
               (open-output-string)
               (make-response 200 #:headers (list (cons "Transfer-Encoding" "chunked")) #:body "x"))
-             'raises)
- (check-err? "invalid status code errors" (make-response 99) 'raises)
+             'error)
+ (check-err? "invalid status code errors" (make-response 99) 'error)
  (check-equal?
   "bytevector response body"
   "\r\n\r\nhello"
