@@ -905,7 +905,7 @@ impl<'a> Parser<'a> {
                 | TokenType::Unquote
                 | TokenType::QuasiQuote
                 | TokenType::UnquoteSplice => {
-                    let kind = PrefixKind::from_token(&token.ty).expect("matched above");
+                    let kind = PrefixKind::from_token(&token.ty).unwrap();
                     let pending = self.enter_prefix(kind, token.span, false, stack.len());
 
                     match self.parse_prefixed(pending) {
@@ -1598,7 +1598,7 @@ impl<'a> Parser<'a> {
                 | TokenType::Unquote
                 | TokenType::QuasiQuote
                 | TokenType::UnquoteSplice => {
-                    let kind = PrefixKind::from_token(&res.ty).expect("matched above");
+                    let kind = PrefixKind::from_token(&res.ty).unwrap();
                     let pending = self.enter_prefix(kind, res.span, true, 0);
 
                     match self.parse_prefixed(pending) {
