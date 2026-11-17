@@ -1109,59 +1109,34 @@ mod would_block_tests {
     fn every_read_reports_a_block() {
         let buf = SteelByteVector::new(vec![0; 4]);
 
-        let reads: Vec<(&str, SteelVal)> = vec![
-            ("read-byte", read_byte(&blocked_port()).unwrap()),
-            ("read-bytes", read_bytes(4, &blocked_port()).unwrap()),
-            (
-                "read-bytes!",
-                read_bytes_into(&buf, &blocked_port(), 0, 4).unwrap(),
-            ),
-            ("read-line*", read_line_ready(&blocked_port()).unwrap()),
-            (
-                "read-port-to-string*",
-                read_port_to_string_ready(&blocked_port()).unwrap(),
-            ),
-            (
-                "read-port-to-bytes*",
-                read_port_to_bytes_ready(&blocked_port()).unwrap(),
-            ),
+        let reads: Vec<SteelVal> = vec![
+            read_byte(&blocked_port()).unwrap(),
+            read_bytes(4, &blocked_port()).unwrap(),
+            read_bytes_into(&buf, &blocked_port(), 0, 4).unwrap(),
+            read_line_ready(&blocked_port()).unwrap(),
+            read_port_to_string_ready(&blocked_port()).unwrap(),
+            read_port_to_bytes_ready(&blocked_port()).unwrap(),
         ];
 
-        for (name, value) in reads {
-            assert!(
-                would_block_objectp(&value),
-                "{name} reported a blocked port as {value}"
-            );
+        for value in reads {
+            assert!(would_block_objectp(&value));
         }
     }
 
     #[test]
     fn waiting_reads_return_the_same_error() {
-        let errors: Vec<(&str, String)> = vec![
-            ("read-line", read_line(&blocked_port()).unwrap_err()),
-            (
-                "read-line-from-port",
-                read_line_from_port(&blocked_port()).unwrap_err(),
-            ),
-            (
-                "read-port-to-string",
-                read_port_to_string(&blocked_port()).unwrap_err(),
-            ),
-            (
-                "read-port-to-bytes",
-                read_port_to_bytes(&blocked_port()).unwrap_err(),
-            ),
+        let errors: Vec<String> = vec![
+            read_line(&blocked_port()).unwrap_err(),
+            read_line_from_port(&blocked_port()).unwrap_err(),
+            read_port_to_string(&blocked_port()).unwrap_err(),
+            read_port_to_bytes(&blocked_port()).unwrap_err(),
         ]
         .into_iter()
-        .map(|(name, err)| (name, err.message().to_string()))
+        .map(|err| err.message().to_string())
         .collect();
 
-        for (name, message) in &errors {
-            assert_eq!(
-                message, &errors[0].1,
-                "{name} describes a blocked port differently from {}",
-                errors[0].0
-            );
+        for message in &errors {
+            assert_eq!(message, &errors[0]);
         }
     }
 
@@ -1171,42 +1146,30 @@ mod would_block_tests {
 
         assert_eq!(
             read_line(&tcp).unwrap_err().message(),
-            read_line(&blocked_port()).unwrap_err().message(),
-            "read-line describes a blocked socket differently depending on the reader"
+            read_line(&blocked_port()).unwrap_err().message()
         );
     }
 
     #[test]
     fn timeout_reports_alike_on_any_os() {
-        assert!(
-            would_block_objectp(&read_line_ready(&timed_out_port()).unwrap()),
-            "read-line* reported a timed out read as something other than would-block"
-        );
+        assert!(would_block_objectp(
+            &read_line_ready(&timed_out_port()).unwrap()
+        ));
 
         assert_eq!(
             read_line(&timed_out_port()).unwrap_err().message(),
-            read_line(&blocked_port()).unwrap_err().message(),
-            "read-line describes a timed out read differently from a would-block"
+            read_line(&blocked_port()).unwrap_err().message()
         );
 
-        let reads: Vec<(&str, SteelVal)> = vec![
-            ("read-byte", read_byte(&timed_out_port()).unwrap()),
-            ("read-bytes", read_bytes(4, &timed_out_port()).unwrap()),
-            (
-                "read-port-to-string*",
-                read_port_to_string_ready(&timed_out_port()).unwrap(),
-            ),
-            (
-                "read-port-to-bytes*",
-                read_port_to_bytes_ready(&timed_out_port()).unwrap(),
-            ),
+        let reads: Vec<SteelVal> = vec![
+            read_byte(&timed_out_port()).unwrap(),
+            read_bytes(4, &timed_out_port()).unwrap(),
+            read_port_to_string_ready(&timed_out_port()).unwrap(),
+            read_port_to_bytes_ready(&timed_out_port()).unwrap(),
         ];
 
-        for (name, value) in reads {
-            assert!(
-                would_block_objectp(&value),
-                "{name} reported a timed out read as {value}"
-            );
+        for value in reads {
+            assert!(would_block_objectp(&value));
         }
     }
 
@@ -1214,18 +1177,14 @@ mod would_block_tests {
     fn timeout_reports_as_a_block() {
         let (timed_out, _client) = timed_out_tcp_port(50);
 
-        assert!(
-            would_block_objectp(&read_line_ready(&timed_out).unwrap()),
-            "read-line* reported a read timeout as something other than would-block"
-        );
+        assert!(would_block_objectp(&read_line_ready(&timed_out).unwrap()));
 
         let (timed_out, _client) = timed_out_tcp_port(50);
         let (non_blocking, _other) = blocked_tcp_port();
 
         assert_eq!(
             read_line(&timed_out).unwrap_err().message(),
-            read_line(&non_blocking).unwrap_err().message(),
-            "read-line describes a read timeout differently from a would-block"
+            read_line(&non_blocking).unwrap_err().message()
         );
     }
 
@@ -1240,8 +1199,7 @@ mod would_block_tests {
 
         assert_eq!(
             value,
-            SteelVal::ByteVector(SteelByteVector::new(b"ab".to_vec())),
-            "a read that timed out after two of the four bytes gave back {value}"
+            SteelVal::ByteVector(SteelByteVector::new(b"ab".to_vec()))
         );
     }
 }

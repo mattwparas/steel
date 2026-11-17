@@ -203,16 +203,9 @@ mod rustls_tests {
         let (mut stream, _client) = connected();
 
         for ms in [0, -1] {
-            assert!(
-                set_read_timeout(&mut stream, Some(ms)).is_err(),
-                "{ms} was taken as a read timeout"
-            );
+            assert!(set_read_timeout(&mut stream, Some(ms)).is_err());
         }
 
-        assert_eq!(
-            stream.0.read_timeout().unwrap(),
-            None,
-            "a refused timeout still reached the socket"
-        );
+        assert_eq!(stream.0.read_timeout().unwrap(), None);
     }
 }

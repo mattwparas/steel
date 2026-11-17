@@ -123,12 +123,7 @@ fn chunked_matches_one_shot() {
         }
     }
 
-    assert!(
-        failures.is_empty(),
-        "{} mismatches\n\n{}",
-        failures.len(),
-        failures.join("\n\n")
-    );
+    assert!(failures.is_empty());
 }
 
 #[test]
@@ -147,19 +142,14 @@ fn long_datum_is_not_reparsed() {
     for shape in shapes() {
         let factor = relex_ratio(&shape, 1);
 
-        assert!(
-            factor < 1.5,
-            "reparsed {:.1}x for {:?}...",
-            factor,
-            &shape[..shape.len().min(24)]
-        );
+        assert!(factor < 1.5);
     }
 }
 
 #[test]
 fn short_datums_resume_too() {
     for input in programs() {
-        assert!(relex_ratio(input, 1) < 1.5, "reparsed {:?}", input);
+        assert!(relex_ratio(input, 1) < 1.5);
     }
 }
 
@@ -232,7 +222,7 @@ fn reader_hands_back_the_datum_instead() {
     ];
 
     for chunk in 1..=DOC_COMMENTED.len() {
-        assert_eq!(drain(DOC_COMMENTED, chunk), expected, "chunk {}", chunk);
+        assert_eq!(drain(DOC_COMMENTED, chunk), expected);
     }
 }
 
@@ -261,8 +251,7 @@ fn string_cut_short_waits_for_its_closing_quote() {
 
         assert_eq!(
             suspended(first).could_advance(whole.as_bytes(), first.len()),
-            advances,
-            "{first:?} then {second:?}"
+            advances
         );
     }
 }

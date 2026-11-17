@@ -14,11 +14,7 @@ fn stacked_prefixes_have_headroom() {
         let text = prefix.repeat(400) + "a";
         let mut parser = Parser::new_flat(&text, SourceId::none());
 
-        assert!(
-            parser.next().map(|res| res.is_ok()).unwrap_or(false),
-            "400 stacked {:?} did not parse",
-            prefix
-        );
+        assert!(parser.next().map(|res| res.is_ok()).unwrap_or(false));
     }
 }
 
@@ -31,11 +27,7 @@ fn nesting_past_the_cap() {
             let mut parser = Parser::new_incremental(&text, SourceId::none(), false, true);
 
             let err = parser.next().unwrap().unwrap_err();
-            assert!(
-                matches!(err, ParseError::SyntaxError(..)),
-                "expected a syntax error, got {:?}",
-                err
-            );
+            assert!(matches!(err, ParseError::SyntaxError(..)));
         })
         .unwrap()
         .join()
@@ -55,12 +47,7 @@ fn source_file_nests_past_the_cap() {
                 let text = open.repeat(depth) + "a" + &close.repeat(depth);
                 let mut parser = Parser::new_flat(&text, SourceId::none());
 
-                assert!(
-                    parser.next().map(|res| res.is_ok()).unwrap_or(false),
-                    "{} nested {:?} did not parse",
-                    depth,
-                    open
-                );
+                assert!(parser.next().map(|res| res.is_ok()).unwrap_or(false));
             }
         })
         .unwrap()

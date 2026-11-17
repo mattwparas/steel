@@ -1714,7 +1714,7 @@ mod port_tests {
         peekable.consume(99);
 
         assert!(peekable.pending_is_empty());
-        assert_eq!(peekable.buf.len(), 0, "a drained buffer is released");
+        assert_eq!(peekable.buf.len(), 0);
         assert_eq!(peekable.pos, 0);
     }
 
@@ -1723,10 +1723,10 @@ mod port_tests {
         let mut peekable = filled(b"0123456789");
 
         peekable.consume(3);
-        assert_eq!(peekable.pos, 3, "under half, so the front is kept");
+        assert_eq!(peekable.pos, 3);
 
         peekable.consume(3);
-        assert_eq!(peekable.pos, 0, "over half, so the front is dropped");
+        assert_eq!(peekable.pos, 0);
         assert_eq!(peekable.pending(), b"6789");
     }
 
@@ -1736,13 +1736,10 @@ mod port_tests {
         assert!(peekable.at_source_start());
 
         ready(peekable.fill_chunk(usize::MAX));
-        assert!(peekable.at_source_start(), "a fill hands nothing out");
+        assert!(peekable.at_source_start());
 
         peekable.consume(0);
-        assert!(
-            peekable.at_source_start(),
-            "consuming nothing hands nothing out"
-        );
+        assert!(peekable.at_source_start());
 
         peekable.consume(1);
         assert!(!peekable.at_source_start());
@@ -1753,10 +1750,7 @@ mod port_tests {
         let mut peekable = Peekable::new(Cursor::new(b"abc".to_vec()));
 
         assert_eq!(ready(peekable.read_byte()), Some(b'a'));
-        assert!(
-            !peekable.at_source_start(),
-            "the byte came straight from the source"
-        );
+        assert!(!peekable.at_source_start());
     }
 
     #[test]
@@ -1765,10 +1759,7 @@ mod port_tests {
         let mut out = [0; 2];
 
         assert_eq!(ready(peekable.read_bytes_amt(&mut out)), 2);
-        assert!(
-            !peekable.at_source_start(),
-            "the bytes came straight from the source"
-        );
+        assert!(!peekable.at_source_start());
     }
 
     #[test]
@@ -1780,7 +1771,7 @@ mod port_tests {
 
         assert_eq!(out, b"abc");
         assert!(peekable.pending_is_empty());
-        assert!(!peekable.at_source_start(), "the bytes were handed out");
+        assert!(!peekable.at_source_start());
     }
 
     #[test]
@@ -1789,10 +1780,7 @@ mod port_tests {
         assert_eq!(peekable.chunk, MIN_CHUNK);
 
         ready(peekable.fill_chunk(usize::MAX));
-        assert_eq!(
-            peekable.chunk, MIN_CHUNK,
-            "nothing was pending, so no growth"
-        );
+        assert_eq!(peekable.chunk, MIN_CHUNK);
 
         ready(peekable.fill_chunk(usize::MAX));
         assert_eq!(peekable.chunk, MIN_CHUNK * 2);
@@ -1842,7 +1830,7 @@ mod port_tests {
         assert_eq!(peekable.pending(), b"abc");
 
         assert!(is_blocked(peekable.fill_chunk(usize::MAX)));
-        assert_eq!(peekable.pending(), b"abc", "the pending bytes survive");
+        assert_eq!(peekable.pending(), b"abc");
     }
 
     struct RanOutOfTime;
@@ -1884,10 +1872,7 @@ mod port_tests {
         });
 
         let mut buf = [0; 8];
-        assert!(
-            peekable.read_bytes_amt(&mut buf).is_err(),
-            "a file that timed out was read as a source with nothing ready"
-        );
+        assert!(peekable.read_bytes_amt(&mut buf).is_err());
     }
 
     #[test]
@@ -1895,11 +1880,7 @@ mod port_tests {
         let mut peekable = Peekable::new(Cursor::new("hé".as_bytes().to_vec()));
 
         assert_eq!(ready(peekable.peek_char()), Some('h'));
-        assert_eq!(
-            ready(peekable.peek_char()),
-            Some('h'),
-            "peeking twice gives the same character"
-        );
+        assert_eq!(ready(peekable.peek_char()), Some('h'));
 
         assert_eq!(ready(peekable.read_byte()), Some(b'h'));
         assert_eq!(ready(peekable.peek_char()), Some('é'));
@@ -1922,14 +1903,9 @@ mod port_tests {
         );
         assert_eq!(
             ready(peekable.peek_char()),
-            Some(char::REPLACEMENT_CHARACTER),
-            "peeking again reports the same character"
+            Some(char::REPLACEMENT_CHARACTER)
         );
-        assert_eq!(
-            ready(peekable.read_byte()),
-            Some(0xFF),
-            "and the byte is still there to be read"
-        );
+        assert_eq!(ready(peekable.read_byte()), Some(0xFF));
     }
 
     #[test]
@@ -1942,18 +1918,13 @@ mod port_tests {
         );
         assert_eq!(
             ready(peekable.peek_char()),
-            Some(char::REPLACEMENT_CHARACTER),
-            "peeking again reports the same character"
+            Some(char::REPLACEMENT_CHARACTER)
         );
         assert_eq!(
             ready(peekable.read_char()),
             Some(char::REPLACEMENT_CHARACTER)
         );
-        assert_eq!(
-            ready(peekable.read_char()),
-            None,
-            "reading is what moves past the stub"
-        );
+        assert_eq!(ready(peekable.read_char()), None);
     }
 
     #[test]
@@ -1992,11 +1963,7 @@ mod port_tests {
         let mut peekable = Peekable::new(Chunks::new(&[b"a", b"bc"]));
 
         assert_eq!(ready(peekable.read_char()), Some('a'));
-        assert_eq!(
-            peekable.pending(),
-            b"",
-            "the bytes after the character are left with the source"
-        );
+        assert_eq!(peekable.pending(), b"");
     }
 
     #[test]
@@ -2126,11 +2093,7 @@ mod port_tests {
 
         let mut buf = [0; 8];
         assert!(peekable.read_bytes_amt(&mut buf).is_err());
-        assert_eq!(
-            peekable.pending(),
-            b"abc",
-            "the bytes are not handed out and dropped"
-        );
+        assert_eq!(peekable.pending(), b"abc");
         assert!(peekable.at_source_start());
     }
 
@@ -2175,11 +2138,7 @@ mod port_tests {
 
         let mut bytes = Vec::new();
         assert!(is_blocked(peekable.read_to_end_pending(&mut bytes)));
-        assert_eq!(
-            peekable.pending(),
-            b"abc",
-            "the buffered bytes are not handed out and dropped"
-        );
+        assert_eq!(peekable.pending(), b"abc");
     }
 
     #[test]
@@ -2226,7 +2185,7 @@ mod port_tests {
 
         assert_eq!(amt, 3);
         assert_eq!(out, "ab\n");
-        assert_eq!(peekable.pending(), b"cd", "the rest stays put");
+        assert_eq!(peekable.pending(), b"cd");
     }
 
     #[test]
@@ -2299,10 +2258,7 @@ mod port_tests {
 
         let mut line = String::new();
         assert_eq!(ready(peekable.read_line_pending(&mut line)), 4);
-        assert!(
-            !peekable.at_source_start(),
-            "a line that was handed out is no longer the start of the source"
-        );
+        assert!(!peekable.at_source_start());
     }
 
     #[test]
@@ -2327,7 +2283,7 @@ mod port_tests {
         assert_eq!(port.pending(), b"bc");
         assert!(!port.at_source_start());
 
-        assert_eq!(ready(port.fill_more()), 0, "the source is spent");
+        assert_eq!(ready(port.fill_more()), 0);
     }
 
     struct TempFile {
@@ -2389,11 +2345,8 @@ mod port_tests {
 
         ready(peekable.fill_chunk(4));
         assert_eq!(peekable.pending(), b"(a) ");
-        assert!(
-            !peekable.inner.buffer().is_empty(),
-            "a small request leaves the rest inside the BufReader"
-        );
-        assert_eq!(peekable.buffered(), 13, "both buffers count");
+        assert!(!peekable.inner.buffer().is_empty());
+        assert_eq!(peekable.buffered(), 13);
 
         peekable.consume(4);
         assert_eq!(peekable.buffered(), 9);
@@ -2416,7 +2369,7 @@ mod port_tests {
 
         let mut rest = String::new();
         observer.read_to_string(&mut rest).unwrap();
-        assert_eq!(rest, "whole file", "nothing was buffered, so nothing moved");
+        assert_eq!(rest, "whole file");
     }
 
     #[cfg(unix)]
@@ -2915,7 +2868,7 @@ mod port_tests {
             .set_read_timeout(Some(std::time::Duration::from_millis(100)))
             .unwrap();
         let err = server.read(&mut [0; 1]).unwrap_err();
-        assert!(blocked(&err, true), "the other end saw {err}");
+        assert!(blocked(&err, true));
 
         (&writer).write_all(b"more\n").unwrap();
         let mut line = [0; 5];

@@ -2722,12 +2722,7 @@ mod engine_sandbox_tests {
         for program in PROGRAMS {
             let error = engine.compile_and_run_raw_program(*program).unwrap_err();
 
-            assert!(
-                error.to_string().contains("sandboxed engine"),
-                "{}: {}",
-                program,
-                error
-            );
+            assert!(error.to_string().contains("sandboxed engine"));
         }
     }
 }

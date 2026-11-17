@@ -1201,11 +1201,7 @@ mod lexer_tests {
             .map(|t| t.unwrap().ty)
             .collect();
 
-        assert!(
-            mid.len() > from_start.len(),
-            "mid source keeps the shebang text as tokens, got {:?}",
-            mid
-        );
+        assert!(mid.len() > from_start.len());
     }
 
     // TODO: Figure out why this just cause an infinite loop when parsing it?

@@ -3033,10 +3033,7 @@ mod read_datum_tests {
                 return (value, retries);
             }
 
-            assert!(
-                Instant::now() < deadline,
-                "the source never finished the datum"
-            );
+            assert!(Instant::now() < deadline);
 
             retries += 1;
         }
@@ -3050,7 +3047,7 @@ mod read_datum_tests {
                 return value;
             }
 
-            assert!(Instant::now() < deadline, "the bytes never turned up");
+            assert!(Instant::now() < deadline);
 
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -3159,18 +3156,11 @@ mod read_datum_tests {
         for program in PROGRAMS {
             let expected = datums(&SteelPort::new_input_port_string(program.to_string()));
 
-            assert!(!expected.is_empty(), "{:?} read as nothing at all", program);
+            assert!(!expected.is_empty());
 
             for chunk in 1..=8 {
                 for stall in [false, true] {
-                    assert_eq!(
-                        datums(&trickle(program, chunk, stall)),
-                        expected,
-                        "{:?} handed over {} bytes at a time (stalling: {})",
-                        program,
-                        chunk,
-                        stall
-                    );
+                    assert_eq!(datums(&trickle(program, chunk, stall)), expected);
                 }
             }
         }
@@ -3202,12 +3192,7 @@ mod read_datum_tests {
         for bytes in [vec![0xC3], vec![0xFF]] {
             let port = SteelPort::new_input_port_bytevector(bytes.clone());
 
-            assert_eq!(
-                datums(&port),
-                vec![whole("\u{fffd}")],
-                "{:?} read as the end of the source",
-                bytes
-            );
+            assert_eq!(datums(&port), vec![whole("\u{fffd}")]);
         }
     }
 
@@ -3218,7 +3203,7 @@ mod read_datum_tests {
         let (value, retries) = read_until_ready(&port);
 
         assert_eq!(value, whole("(a b c)"));
-        assert!(retries > 0, "the source never stalled");
+        assert!(retries > 0);
     }
 
     #[test]
@@ -3226,10 +3211,7 @@ mod read_datum_tests {
         let port = trickle("(a b c)", 4, true);
 
         assert!(would_block_objectp(&read_one(&port).unwrap()));
-        assert!(
-            is_suspended(&port),
-            "the retry would parse those bytes again"
-        );
+        assert!(is_suspended(&port));
         assert_eq!(read_until_ready(&port).0, whole("(a b c)"));
     }
 
@@ -3242,10 +3224,7 @@ mod read_datum_tests {
             port.read_char().unwrap(),
             MaybeBlocking::Nonblocking(Some('('))
         );
-        assert!(
-            !is_suspended(&port),
-            "the parser's place outlived the bytes it was looking at"
-        );
+        assert!(!is_suspended(&port));
     }
 
     #[test]
@@ -3261,10 +3240,7 @@ mod read_datum_tests {
         });
 
         assert_eq!(line, "(a b\n");
-        assert!(
-            !is_suspended(&port),
-            "the parser's place outlived the bytes it was looking at"
-        );
+        assert!(!is_suspended(&port));
         assert_eq!(read_until_ready(&port).0, whole("c"));
     }
 
@@ -3281,10 +3257,7 @@ mod read_datum_tests {
         });
 
         assert_eq!(rest, "(a b c)");
-        assert!(
-            !is_suspended(&port),
-            "the parser's place outlived the bytes it was looking at"
-        );
+        assert!(!is_suspended(&port));
     }
 
     #[test]
@@ -3307,10 +3280,7 @@ mod read_datum_tests {
             (!port.port.read().pending().is_empty()).then_some(())
         });
 
-        assert!(
-            is_suspended(&port),
-            "the retry would parse those bytes again"
-        );
+        assert!(is_suspended(&port));
 
         client.write_all(b" c)").unwrap();
 

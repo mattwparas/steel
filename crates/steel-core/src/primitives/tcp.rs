@@ -334,16 +334,12 @@ mod tcp_tests {
         let (stream, _client) = connected();
 
         for ms in [SteelVal::IntV(0), SteelVal::IntV(-1)] {
-            assert!(
-                tcp_stream_set_read_timeout(&stream, &ms).is_err(),
-                "{ms} was taken as a read timeout"
-            );
+            assert!(tcp_stream_set_read_timeout(&stream, &ms).is_err());
         }
 
         assert_eq!(
             TcpStream::as_ref(&stream).unwrap().read_timeout().unwrap(),
-            None,
-            "a refused timeout still reached the socket"
+            None
         );
     }
 
@@ -352,10 +348,7 @@ mod tcp_tests {
         let (stream, _client) = connected();
 
         for ms in [SteelVal::BoolV(true), SteelVal::StringV("250".into())] {
-            assert!(
-                tcp_stream_set_read_timeout(&stream, &ms).is_err(),
-                "{ms} was taken as a read timeout"
-            );
+            assert!(tcp_stream_set_read_timeout(&stream, &ms).is_err());
         }
     }
 
