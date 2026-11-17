@@ -387,10 +387,9 @@ Converts the bytevector to the equivalent list representation.
 ### **bytes->string/utf-8**
 Alias of `bytes->string/utf8`.
 ### **bytes->string/utf8**
-Decodes a string from a bytevector containing valid UTF-8. Raises if the
-bytes are not valid UTF-8, unless `err-char` is given as a replacement.
-Reading the same bytes from a port uses the replacement character instead
-of raising.
+Decodes a string from a bytevector containing valid UTF-8. It is an error if
+the bytes are not valid UTF-8, unless `err-char` is given as a replacement.
+Reading the same bytes from a port uses the replacement character instead.
 
 (bytes->string/utf8 buf [err-char] [start] [end]) -> string?
 
@@ -3031,10 +3030,10 @@ These bytes can be recovered calling `get-output-bytevector`.
 Takes a filename `path` referring to a file to be created and returns an output port.
 `exists` controls what happens when the file already exists:
 
-* `'error` raises an error
+* `'error` fails with an error
 * `'truncate` empties the file
 * `'append` writes at the end of the file
-* `'update` keeps the contents and starts at the beginning. Raises if the file is missing
+* `'update` keeps the contents and starts at the beginning. It is an error if the file is missing
 * `'can-update` is like `'update`, but creates the file if it is missing
 
 (open-output-file path [#:exists exists]) -> output-port?

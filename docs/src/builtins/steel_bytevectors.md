@@ -35,10 +35,9 @@ Converts the bytevector to the equivalent list representation.
 ### **bytes->string/utf-8**
 Alias of `bytes->string/utf8`.
 ### **bytes->string/utf8**
-Decodes a string from a bytevector containing valid UTF-8. Raises if the
-bytes are not valid UTF-8, unless `err-char` is given as a replacement.
-Reading the same bytes from a port uses the replacement character instead
-of raising.
+Decodes a string from a bytevector containing valid UTF-8. It is an error if
+the bytes are not valid UTF-8, unless `err-char` is given as a replacement.
+Reading the same bytes from a port uses the replacement character instead.
 
 (bytes->string/utf8 buf [err-char] [start] [end]) -> string?
 

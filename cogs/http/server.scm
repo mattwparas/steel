@@ -230,7 +230,7 @@
 ;; TODO: Add thread pool support here
 ;;@doc
 ;; Serves requests on one connection until it ends, and returns how many it
-;; served. `handler` takes a `request?` and returns a `response?`. If it raises
+;; served. `handler` takes a `request?` and returns a `response?`. If it fails
 ;; or returns anything else, the response is a 500.
 ;;
 ;; (http-serve-connection reader writer handler [#:keep-alive keep-alive]

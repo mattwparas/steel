@@ -837,7 +837,7 @@
   (request-header
    (http-read-request (open-input-string "GET /a HTTP/1.1\r\nHost: x\r\nX-Long: one\r\n two\r\n\r\n"))
    "X-Long"))
- (check-err? "a request this server cannot read raises, rather than coming back empty"
+ (check-err? "a request this server cannot read is an error"
              (http-read-request (open-input-string "nonsense\r\n\r\n"))
              'raises)
  (check-equal? "a stray crlf before the request line is skipped, not read as a request"
@@ -944,10 +944,10 @@
 
 (test-module
  "http-server-handler-tests"
- (check-equal? "a handler that raises becomes a 500"
+ (check-equal? "a handler that fails becomes a 500"
                "HTTP/1.1 500 Internal Server Error"
                (answer-status *get* (lambda (sent) (error "a handler blew up"))))
- (check-equal? "what the handler raised stays on this side of the wire"
+ (check-equal? "the handler's error is not sent to the client"
                #f
                (string-contains? (answer *get* (lambda (sent) (error "/etc/passwd is right here")))
                                  "passwd"))
@@ -962,7 +962,7 @@
                                (set-box! calls (+ (unbox calls) 1))
                                (make-response 200)))
                  (unbox calls)))
- (check-equal? "an answer that cannot be written ends the connection rather than raising"
+ (check-equal? "an answer that cannot be written ends the connection"
                0
                (let ([writer (open-output-string)])
                  (close-output-port writer)

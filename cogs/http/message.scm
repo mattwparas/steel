@@ -48,11 +48,11 @@
 (define *http-version* "HTTP/1.1")
 
 ;;@doc
-;; The maximum number of header lines in a message. Reading more raises.
+;; The maximum number of header lines in a message. Reading more is an error.
 (define *max-header-lines* 200)
 
 ;;@doc
-;; The maximum length of one line of a head. A longer line raises.
+;; The maximum length of one line of a head. A longer line is an error.
 (define *max-line-length* 8192)
 
 (struct request (method url headers body version) #:transparent)
@@ -173,7 +173,7 @@
   (and (>= (response-status received) 200) (< (response-status received) 300)))
 
 ;;@doc
-;; The body decoded as utf8. Raises when the body is not utf8.
+;; The body decoded as utf8. It is an error if the body is not utf8.
 (define (response-text received)
   (bytes->string/utf8 (response-body received)))
 
@@ -267,7 +267,7 @@
   (error *would-block-message*))
 
 ;;@doc
-;; Whether `err` was raised by a read that ran out of time
+;; Whether `err` came from a read that ran out of time
 (define (would-block-error? err)
   (equal? (trim (to-string (error-object-message err))) *would-block-message*))
 

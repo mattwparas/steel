@@ -245,7 +245,7 @@ pub fn tcp_stream_set_non_blocking(value: &SteelVal) -> Result<SteelVal> {
 /// Sets how long a read on the given TCP stream will wait for bytes before
 /// giving up. Once set, a read that reaches the deadline behaves like a read on
 /// a non-blocking stream: the `*` readers will return a would-block object, the
-/// normal (non *) readers will raise, and bytes that arrived before the deadline are
+/// normal (non *) readers will return an error, and bytes that arrived before the deadline are
 /// kept.
 ///
 /// (tcp-stream-set-read-timeout! stream ms) -> void?
