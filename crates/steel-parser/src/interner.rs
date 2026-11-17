@@ -221,7 +221,7 @@ mod without_std {
         strings: Vec::new(),
     });
 
-    // Strings are leaked so that `resolve` can return them without the lock
+    // Note: strings are leaked so that `resolve` can work properly
     fn intern_with(ident: &str, keep: impl FnOnce() -> &'static str) -> Key {
         let mut interner = INTERNER.lock();
         if let Some(key) = interner.keys.get(ident) {

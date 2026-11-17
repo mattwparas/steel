@@ -458,8 +458,6 @@ pub struct ParserState {
 }
 
 impl ParserState {
-    // False when stopped inside a string and `input[seen..]` has no unescaped
-    // quote. Parsing again would only re-lex the whole string.
     pub fn could_advance(&self, input: &[u8], seen: usize) -> bool {
         if !self.in_string {
             return true;
@@ -1312,8 +1310,7 @@ impl<'a> Parser<'a> {
             owner_base: _,
         } = pending;
 
-        // Each prefix recurses, and the reader's input is untrusted. Source files
-        // are not limited.
+        // NOTE: We're putting an arbitrary depth here to make sure we don't stack overflow
         if self.incremental && self.prefix_depth >= MAX_PREFIX_DEPTH {
             return Err(self.too_deep(span));
         }

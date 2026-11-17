@@ -27,7 +27,6 @@ impl<'a> Doc<'a> {
         Doc::Text(Cow::Borrowed(" "))
     }
 
-    /// A newline, or a space when the enclosing group fits on one line.
     pub fn line() -> Self {
         Doc::Line
     }
@@ -48,7 +47,6 @@ impl<'a> Doc<'a> {
         Doc::Nest(by, Box::new(self))
     }
 
-    /// Lays the document out on one line when it fits in the width.
     pub fn group(self) -> Self {
         Doc::Group(Box::new(self))
     }
@@ -66,8 +64,7 @@ impl<'a> Doc<'a> {
 
     pub fn pretty(&self, width: usize) -> String {
         let mut out = String::new();
-        self.render(width, &mut out)
-            .expect("writing to a string cannot fail");
+        self.render(width, &mut out).unwrap();
         out
     }
 
@@ -111,8 +108,6 @@ impl<'a> Doc<'a> {
     }
 }
 
-// Whether `doc` laid out flat, plus what follows it up to the next newline,
-// fits within `width`.
 fn fits<'d, 'a>(
     doc: &'d Doc<'a>,
     rest: &[Command<'d, 'a>],
