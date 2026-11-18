@@ -540,7 +540,7 @@ fn replacement_character(amt: usize) -> MaybeBlocking<Option<(char, usize)>> {
     MaybeBlocking::Nonblocking(Some((char::REPLACEMENT_CHARACTER, amt)))
 }
 
-// A read that times out is WouldBlock on unix and TimedOut on windows
+// Note: a read that times out is WouldBlock on unix and TimedOut on windows... for some reason?
 fn blocked(err: &io::Error, deadline: bool) -> bool {
     err.kind() == io::ErrorKind::WouldBlock || (deadline && err.kind() == io::ErrorKind::TimedOut)
 }
