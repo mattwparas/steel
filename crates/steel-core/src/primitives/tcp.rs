@@ -269,7 +269,7 @@ pub fn tcp_stream_set_read_timeout(value: &SteelVal, ms: &SteelVal) -> Result<St
 fn read_timeout(ms: &SteelVal) -> Result<Option<Duration>> {
     match ms {
         SteelVal::BoolV(false) => Ok(None),
-        // Zero means "no timeout at all" to the os
+        // zero here means no timeout at all
         SteelVal::IntV(0) => {
             stop!(Generic => "tcp-stream-set-read-timeout!: a timeout of zero is not a timeout - use tcp-stream-set-non-blocking! to stop waiting entirely")
         }
