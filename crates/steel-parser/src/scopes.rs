@@ -1,9 +1,32 @@
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    sync::{Arc, Weak},
+    vec::Vec,
+};
 use core::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, Weak};
 
-use once_cell::sync::Lazy;
-use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
+
+use crate::interner::Lazy;
+
+// The maps here are private, so the same map type works with and without std
+type FxHashMap<K, V> = hashbrown::HashMap<K, V, rustc_hash::FxBuildHasher>;
+
+#[cfg(feature = "std")]
+type Mutex<T> = std::sync::Mutex<T>;
+#[cfg(not(feature = "std"))]
+type Mutex<T> = spin::Mutex<T>;
+
+#[cfg(feature = "std")]
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap()
+}
+
+#[cfg(not(feature = "std"))]
+fn lock<T>(mutex: &Mutex<T>) -> spin::MutexGuard<'_, T> {
+    mutex.lock()
+}
 
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Ord, PartialOrd, Default,
@@ -14,8 +37,8 @@ static SCOPE_COUNTER: AtomicU32 = AtomicU32::new(1);
 
 // Maps module names to scopes and back
 #[allow(clippy::type_complexity)]
-static MODULES: once_cell::sync::Lazy<Mutex<(FxHashMap<String, Scope>, FxHashMap<Scope, String>)>> =
-    once_cell::sync::Lazy::new(Default::default);
+static MODULES: Lazy<Mutex<(FxHashMap<String, Scope>, FxHashMap<Scope, String>)>> =
+    Lazy::new(Default::default);
 
 // The next scope number, which has to stay below the flag bits
 fn next_scope() -> u32 {
@@ -58,7 +81,7 @@ impl Scope {
 
     // A module's scope, looked up by name so it's the same each time
     pub fn module(name: &str) -> Self {
-        let mut modules = MODULES.lock().unwrap();
+        let mut modules = lock(&MODULES);
         if let Some(scope) = modules.0.get(name) {
             return *scope;
         }
@@ -70,7 +93,7 @@ impl Scope {
 
     // The name of the module this scope belongs to
     pub fn module_name(self) -> Option<String> {
-        MODULES.lock().unwrap().1.get(&self).cloned()
+        lock(&MODULES).1.get(&self).cloned()
     }
 
     // The prelude's scope. Prelude macro templates get it in addition to their module's
@@ -137,7 +160,16 @@ impl core::fmt::Debug for ScopeSetId {
     }
 }
 
+#[cfg(target_has_atomic = "64")]
 static SERIAL: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
+
+// Targets without 64-bit atomics count with a pointer-sized counter, widened to a serial
+#[cfg(not(target_has_atomic = "64"))]
+static SERIAL: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(1);
+
+fn next_serial() -> u64 {
+    SERIAL.fetch_add(1, Ordering::Relaxed) as u64
+}
 
 // All sets, keyed by a hash of their scopes. The references are weak so they don't keep sets
 // alive.
@@ -178,7 +210,7 @@ impl Interner {
             return ScopeSetId(Some(set));
         }
         let set = Arc::new(SetData {
-            serial: SERIAL.fetch_add(1, Ordering::Relaxed),
+            serial: next_serial(),
             scopes: scopes.into(),
             introduced: scopes.iter().any(|x| x.is_introduction()),
         });
@@ -209,7 +241,7 @@ fn intern(scopes: &[Scope]) -> ScopeSetId {
     if scopes.is_empty() {
         return ScopeSetId::EMPTY;
     }
-    INTERNER.lock().unwrap().intern(scopes)
+    lock(&INTERNER).intern(scopes)
 }
 
 // The result of a memoised operation, only valid while it's alive. Operands are keyed by their
@@ -230,9 +262,25 @@ impl Held {
     }
 }
 
-thread_local! {
+#[cfg(feature = "std")]
+std::thread_local! {
     // This thread's memoised set operations, keyed by the operands' serials
     static MEMO: core::cell::RefCell<Memo> = core::cell::RefCell::new(Memo::default());
+}
+
+// Without std there are no thread locals, so the memoised operations are shared
+#[cfg(not(feature = "std"))]
+static MEMO: Lazy<Mutex<Memo>> = Lazy::new(Default::default);
+
+// Runs `f` on the memoised operations. `f` must not use them again
+#[cfg(feature = "std")]
+fn with_memo<R>(f: impl FnOnce(&mut Memo) -> R) -> R {
+    MEMO.with(|x| f(&mut x.borrow_mut()))
+}
+
+#[cfg(not(feature = "std"))]
+fn with_memo<R>(f: impl FnOnce(&mut Memo) -> R) -> R {
+    f(&mut lock(&MEMO))
 }
 
 #[derive(Default)]
@@ -251,7 +299,7 @@ impl Memo {
         map: impl FnOnce(&Memo) -> &FxHashMap<K, Held>,
         key: &K,
     ) -> Option<ScopeSetId> {
-        MEMO.with(|x| map(&x.borrow()).get(key)?.get())
+        with_memo(|memo| map(memo).get(key)?.get())
     }
 
     fn insert<K: core::hash::Hash + Eq>(
@@ -259,14 +307,13 @@ impl Memo {
         key: K,
         set: &ScopeSetId,
     ) {
-        MEMO.with(|x| {
-            let mut memo = x.borrow_mut();
+        with_memo(|memo| {
             if memo.added.len() + memo.unions.len() + memo.filtered.len() > MEMO_LIMIT {
                 memo.added.clear();
                 memo.unions.clear();
                 memo.filtered.clear();
             }
-            map(&mut memo).insert(key, Held::of(set));
+            map(memo).insert(key, Held::of(set));
         })
     }
 }
@@ -499,8 +546,7 @@ impl ScopeSetId {
 
 // Clears this thread's memoised operations once there are too many
 pub fn trim_caches() {
-    MEMO.with(|x| {
-        let mut memo = x.borrow_mut();
+    with_memo(|memo| {
         if memo.added.len() + memo.unions.len() + memo.filtered.len() > MEMO_LIMIT / 2 {
             memo.added.clear();
             memo.unions.clear();

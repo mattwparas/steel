@@ -29,3 +29,44 @@
 (assert-equal! (bytes-append (bytes 0 1 2) (bytes 3 4 5)) (bytes 0 1 2 3 4 5))
 
 (assert-equal! (list->bytes (list 0 1 2 3 4 5)) (bytes 0 1 2 3 4 5))
+
+(define copied (bytes 0 1 2 3 4))
+(bytevector-copy! copied 1 (bytes 10 20))
+(assert-equal! copied (bytes 0 10 20 3 4))
+
+(bytevector-copy! copied 0 (bytes 0 1 2 3 4 5) 3 5)
+(assert-equal! copied (bytes 3 4 20 3 4))
+
+(define overlapping (bytes 0 1 2 3 4))
+(bytevector-copy! overlapping 1 overlapping 0 4)
+(assert-equal! overlapping (bytes 0 0 1 2 3))
+
+(bytevector-copy! overlapping 0 overlapping)
+(assert-equal! overlapping (bytes 0 0 1 2 3))
+
+(assert-equal! 'err
+               (with-handler (lambda (err) 'err) (bytevector-copy! (bytes 0 1) 1 (bytes 0 1))))
+(assert-equal! 'err
+               (with-handler (lambda (err) 'err) (bytevector-copy! (bytes 0 1) 0 (bytes 0 1) 1 0)))
+(assert-equal! 'err
+               (with-handler (lambda (err) 'err) (bytevector-copy! (bytes 0 1) 0 (bytes 0 1) 0 3)))
+
+(define malformed (bytes 97 255 98))
+(define replacement (string (integer->char 65533)))
+
+(assert-equal! (bytes->string/utf-8 malformed #\x) "axb")
+(assert-equal! (bytes->string/utf-8 malformed (integer->char 65533))
+               (string-append "a" replacement "b"))
+(assert-equal! (bytes->string/utf-8 malformed #\x 1 3) "xb")
+(assert-equal! (utf8->string (bytes 97 98 99) 1 3) "bc")
+
+(assert-equal! 'err (with-handler (lambda (err) 'err) (bytes->string/utf-8 malformed)))
+(assert-equal! 'err (with-handler (lambda (err) 'err) (bytes->string/utf-8 malformed #f)))
+
+(assert-equal! 'err (with-handler (lambda (err) 'err) (bytes->string/utf8 (bytes 97 98) 0 5)))
+(assert-equal! 'err (with-handler (lambda (err) 'err) (bytes->string/utf8 (bytes 97 98) 9)))
+(assert-equal! 'err (with-handler (lambda (err) 'err) (bytes->string/utf8 (bytes 97 98) 2 1)))
+(assert-equal! 'err (with-handler (lambda (err) 'err) (bytes->string/utf8 (bytes 97 98) -1)))
+
+(assert-equal! (list (bytes 1 2)) (list (bytes 1 2)))
+(assert! (not (equal? (list (bytes 1 2)) (list (bytes 1 3)))))

@@ -10524,11 +10524,12 @@ impl<'a> SemanticAnalysis<'a> {
                 expr => defines.push(expr),
             }
         }
-        // Of the builtins only open-output-file takes one, apply passes them on, and keyword
-        // arguments expand to the plist ones
+        // Of the builtins only open-output-file and open-input-output-file take one, apply
+        // passes them on, and keyword arguments expand to the plist ones
         fn takes_keyword(name: &str) -> bool {
             let name = name.trim_start_matches("#%prim.");
-            name == "open-output-file" || name == "apply" || name.starts_with("plist-")
+            matches!(name, "open-output-file" | "open-input-output-file" | "apply")
+                || name.starts_with("plist-")
         }
 
         for expr in defines {

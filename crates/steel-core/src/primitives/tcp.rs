@@ -6,6 +6,8 @@ use steel_derive::function;
 use crate::gc::Gc;
 use crate::rvals::{AsRefSteelVal, Custom, IntoSteelVal, Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
+use crate::stop;
+use crate::time::Duration;
 use crate::values::lists::Pair;
 use crate::values::port::{Peekable, SteelPort};
 use crate::values::SteelPortRepr;
@@ -62,6 +64,31 @@ pub fn tcp_close(stream: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
+/// Closes the output side of a tcp port, like `close-output-port`, but without
+/// telling the other end. The other end does not see the end of the stream
+/// until the connection itself is shut down or dropped.
+///
+/// (tcp-abandon-port port) -> void?
+///
+/// * port : port? - a port from `tcp-stream-reader`
+///
+/// # Examples
+///
+/// ```scheme
+/// (define stream (tcp-connect "127.0.0.1:8080"))
+/// (define port (tcp-stream-reader stream))
+/// (tcp-abandon-port port)
+/// (output-port? port) ;; => #false
+/// ```
+#[function(name = "tcp-abandon-port")]
+pub fn tcp_abandon_port(port: &SteelPort) -> Result<SteelVal> {
+    if !port.is_tcp() {
+        stop!(TypeMismatch => "tcp-abandon-port expects a tcp port, found {}", port)
+    }
+
+    port.abandon_output_port().map(|_| SteelVal::Void)
+}
+
 /// Get the writer half of this tcp stream as a port.
 ///
 /// ```scheme
@@ -84,7 +111,7 @@ pub fn tcp_input_port(stream: &SteelVal) -> Result<SteelVal> {
 pub fn tcp_output_port(stream: &SteelVal) -> Result<SteelVal> {
     let reader = TcpStream::as_ref(stream)?.try_clone().unwrap();
     Ok(SteelVal::PortV(SteelPort {
-        port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::new(reader))),
+        port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::with_deadline(reader))),
     }))
 }
 
@@ -98,9 +125,9 @@ pub fn tcp_output_port(stream: &SteelVal) -> Result<SteelVal> {
 pub fn tcp_buffered_output_port(stream: &SteelVal) -> Result<SteelVal> {
     let reader = TcpStream::as_ref(stream)?.try_clone().unwrap();
     Ok(SteelVal::PortV(SteelPort {
-        port: Gc::new_lock(SteelPortRepr::DynReader(Peekable::new(BufReader::new(
-            Box::new(reader),
-        )))),
+        port: Gc::new_lock(SteelPortRepr::DynReader(Peekable::with_deadline(
+            BufReader::new(Box::new(reader)),
+        ))),
     }))
 }
 
@@ -179,7 +206,7 @@ pub fn tcp_accept(value: &SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// (define listener (tcp-listen "127.0.0.1:8080"))
 ///
-/// (tcp-accept listener) ;; => (cons TcpStream? string?)
+/// (tcp-accept-with-addr listener) ;; => (cons TcpStream? string?)
 /// ```
 #[function(name = "tcp-accept-with-addr", returns = Pair)]
 pub fn tcp_accept_addr(value: &SteelVal) -> Result<SteelVal> {
@@ -215,6 +242,47 @@ pub fn tcp_stream_set_non_blocking(value: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
+/// Sets how long a read on the given TCP stream will wait for bytes before
+/// giving up. Once set, a read that reaches the deadline behaves like a read on
+/// a non-blocking stream: the `*` readers will return a would-block object, the
+/// normal (non *) readers will return an error, and bytes that arrived before the deadline are
+/// kept.
+///
+/// (tcp-stream-set-read-timeout! stream ms) -> void?
+///
+/// * stream : tcp-stream?
+/// * ms : (or/c int? #f) - milliseconds to wait, or `#f` to wait forever
+///
+/// # Examples
+///
+/// ```scheme
+/// (define stream (tcp-connect "127.0.0.1:8080"))
+/// (tcp-stream-set-read-timeout! stream 5000)
+/// (read-line* (tcp-stream-reader stream)) ;; => a line, or a would-block object
+/// ```
+#[function(name = "tcp-stream-set-read-timeout!")]
+pub fn tcp_stream_set_read_timeout(value: &SteelVal, ms: &SteelVal) -> Result<SteelVal> {
+    TcpStream::as_ref(value)?.set_read_timeout(read_timeout(ms)?)?;
+    Ok(SteelVal::Void)
+}
+
+fn read_timeout(ms: &SteelVal) -> Result<Option<Duration>> {
+    match ms {
+        SteelVal::BoolV(false) => Ok(None),
+        // zero here means no timeout at all
+        SteelVal::IntV(0) => {
+            stop!(Generic => "tcp-stream-set-read-timeout!: a timeout of zero is not a timeout - use tcp-stream-set-non-blocking! to stop waiting entirely")
+        }
+        SteelVal::IntV(ms) if *ms > 0 => Ok(Some(Duration::from_millis(*ms as u64))),
+        SteelVal::IntV(ms) => {
+            stop!(Generic => "tcp-stream-set-read-timeout!: expected a positive number of milliseconds, found {}", ms)
+        }
+        other => {
+            stop!(TypeMismatch => "tcp-stream-set-read-timeout! expects an integer number of milliseconds or #f, found {}", other)
+        }
+    }
+}
+
 pub fn tcp_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/tcp".to_string());
 
@@ -225,10 +293,67 @@ pub fn tcp_module() -> BuiltInModule {
         .register_native_fn_definition(TCP_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(TCP_BUFFERED_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(TCP_LISTEN_DEFINITION)
+        .register_native_fn_definition(TCP_LISTENER_LOCAL_ADDR_DEFINITION)
         .register_native_fn_definition(TCP_ACCEPT_DEFINITION)
         .register_native_fn_definition(TCP_ACCEPT_ADDR_DEFINITION)
         .register_native_fn_definition(TCP_LISTENER_SET_NON_BLOCKING_DEFINITION)
-        .register_native_fn_definition(TCP_STREAM_SET_NON_BLOCKING_DEFINITION);
+        .register_native_fn_definition(TCP_STREAM_SET_NON_BLOCKING_DEFINITION)
+        .register_native_fn_definition(TCP_ABANDON_PORT_DEFINITION)
+        .register_native_fn_definition(TCP_STREAM_SET_READ_TIMEOUT_DEFINITION);
 
     module
+}
+
+#[cfg(test)]
+mod tcp_tests {
+    use super::*;
+
+    fn connected() -> (SteelVal, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+
+        (server.into_steelval().unwrap(), client)
+    }
+
+    #[test]
+    fn false_timeout_waits_forever() {
+        let (stream, _client) = connected();
+
+        tcp_stream_set_read_timeout(&stream, &SteelVal::IntV(250)).unwrap();
+        tcp_stream_set_read_timeout(&stream, &SteelVal::BoolV(false)).unwrap();
+
+        assert_eq!(
+            TcpStream::as_ref(&stream).unwrap().read_timeout().unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn zero_timeout_errors() {
+        let (stream, _client) = connected();
+
+        for ms in [SteelVal::IntV(0), SteelVal::IntV(-1)] {
+            assert!(tcp_stream_set_read_timeout(&stream, &ms).is_err());
+        }
+
+        assert_eq!(
+            TcpStream::as_ref(&stream).unwrap().read_timeout().unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn non_numeric_timeout_errors() {
+        let (stream, _client) = connected();
+
+        for ms in [SteelVal::BoolV(true), SteelVal::StringV("250".into())] {
+            assert!(tcp_stream_set_read_timeout(&stream, &ms).is_err());
+        }
+    }
+
+    #[test]
+    fn timeout_needs_a_tcp_stream() {
+        assert!(tcp_stream_set_read_timeout(&SteelVal::IntV(1), &SteelVal::IntV(250)).is_err());
+    }
 }

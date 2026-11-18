@@ -1,7 +1,13 @@
 use alloc::{borrow::Cow, rc::Rc};
+use alloc::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::result;
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +20,7 @@ use crate::{
         RAW_UNSYNTAX_SPLICING, REQUIRE, RETURN, SET, SYNTAX_QUOTE, UNQUOTE, UNQUOTE_SPLICING,
     },
     interner::InternedString,
-    lexer::{OwnedTokenStream, ToOwnedString, TokenError, TokenStream},
+    lexer::{LexerState, OwnedTokenStream, ToOwnedString, TokenError, TokenStream},
     span::Span,
     tokens::{Paren, ParenMod, Token, TokenLike, TokenType},
 };
@@ -22,6 +28,8 @@ use crate::{
 use thin_vec::{thin_vec, ThinVec};
 
 static SOURCE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+pub const MAX_PREFIX_DEPTH: u32 = 512;
 
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
@@ -207,7 +215,7 @@ impl SyntaxObject {
 
     pub fn from_token_with_source(
         val: &Token<'_, InternedString>,
-        _source: &Option<Rc<PathBuf>>,
+        _source: &Option<Rc<SourcePath>>,
     ) -> Self {
         SyntaxObject {
             ty: val.ty.clone(),
@@ -226,13 +234,18 @@ impl From<&Token<'_, InternedString>> for SyntaxObject {
     }
 }
 
+#[cfg(feature = "std")]
+pub type SourcePath = std::path::PathBuf;
+#[cfg(not(feature = "std"))]
+pub type SourcePath = String;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
-    MismatchedParen(Paren, Span, Option<Rc<PathBuf>>),
-    UnexpectedEOF(Span, Option<Rc<PathBuf>>),
-    UnexpectedChar(char, Span, Option<Rc<PathBuf>>),
-    SyntaxError(String, Span, Option<Rc<PathBuf>>),
-    ArityMismatch(String, Span, Option<Rc<PathBuf>>),
+    MismatchedParen(Paren, Span, Option<Rc<SourcePath>>),
+    UnexpectedEOF(Span, Option<Rc<SourcePath>>),
+    UnexpectedChar(char, Span, Option<Rc<SourcePath>>),
+    SyntaxError(String, Span, Option<Rc<SourcePath>>),
+    ArityMismatch(String, Span, Option<Rc<SourcePath>>),
 }
 
 impl From<TokenLike<'_, TokenError>> for ParseError {
@@ -262,7 +275,7 @@ impl core::fmt::Display for ParseError {
     }
 }
 
-impl std::error::Error for ParseError {}
+impl core::error::Error for ParseError {}
 
 impl ParseError {
     pub fn span(&self) -> Span {
@@ -275,7 +288,7 @@ impl ParseError {
         }
     }
 
-    pub fn set_source(self, source: Option<Rc<PathBuf>>) -> Self {
+    pub fn set_source(self, source: Option<Rc<SourcePath>>) -> Self {
         use ParseError::*;
         match self {
             ParseError::MismatchedParen(l, s, _) => MismatchedParen(l, s, source),
@@ -302,13 +315,131 @@ pub struct Parser<'a> {
     quasiquote_depth: isize,
     quote_context: bool,
     shorthand_quote_stack: Vec<usize>,
-    source_name: Option<Rc<PathBuf>>,
+    source_name: Option<Rc<SourcePath>>,
     context: Vec<ParsingContext>,
     comment_buffer: Vec<&'a str>,
     collecting_comments: bool,
+    collect_doc_comments: bool,
     keep_lists: bool,
 
     queued: Option<ExprKind>,
+
+    incremental: bool,
+    levels: Vec<Level>,
+    more_to_come: bool,
+    input_len: u32,
+    resume_at: Option<u32>,
+    resume_in_string: bool,
+    resume_blocked: bool,
+    datum_comments: Vec<Span>,
+    datum_comment_base: usize,
+    tokens_lexed: usize,
+    prefix_depth: u32,
+    lexical_error_is_final: bool,
+    shebang_incomplete: bool,
+}
+
+fn can_continue<S>(ty: &TokenType<S>) -> bool {
+    !matches!(
+        ty,
+        TokenType::OpenParen(..)
+            | TokenType::CloseParen(_)
+            | TokenType::QuoteTick
+            | TokenType::QuasiQuote
+            | TokenType::UnquoteSplice
+            | TokenType::QuoteSyntax
+            | TokenType::QuasiQuoteSyntax
+            | TokenType::UnquoteSpliceSyntax
+            | TokenType::DatumComment
+            | TokenType::StringLiteral(_)
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PendingPrefix {
+    kind: PrefixKind,
+    span: Span,
+    saved_quote_context: bool,
+    top_level: bool,
+    nested_base: usize,
+    owner_base: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PrefixKind {
+    QuoteSyntax,
+    QuasiQuoteSyntax,
+    UnquoteSyntax,
+    UnquoteSpliceSyntax,
+    QuoteTick,
+    Unquote,
+    QuasiQuote,
+    UnquoteSplice,
+}
+
+impl PrefixKind {
+    fn from_token<S>(ty: &TokenType<S>) -> Option<Self> {
+        Some(match ty {
+            TokenType::QuoteSyntax => Self::QuoteSyntax,
+            TokenType::QuasiQuoteSyntax => Self::QuasiQuoteSyntax,
+            TokenType::UnquoteSyntax => Self::UnquoteSyntax,
+            TokenType::UnquoteSpliceSyntax => Self::UnquoteSpliceSyntax,
+            TokenType::QuoteTick => Self::QuoteTick,
+            TokenType::Unquote => Self::Unquote,
+            TokenType::QuasiQuote => Self::QuasiQuote,
+            TokenType::UnquoteSplice => Self::UnquoteSplice,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug)]
+enum Level {
+    Frames {
+        stack: Vec<Frame>,
+        current_frame: Frame,
+        last: Span,
+        pending: Option<PendingPrefix>,
+        datum_comment_base: usize,
+    },
+    TopPrefix(PendingPrefix),
+}
+
+#[derive(Debug)]
+pub(crate) struct SuspendedParse {
+    levels: Vec<Level>,
+    datum_comments: Vec<Span>,
+    quote_stack: Vec<usize>,
+    shorthand_quote_stack: Vec<usize>,
+    quasiquote_depth: isize,
+    quote_context: bool,
+    context: Vec<ParsingContext>,
+}
+
+#[derive(Debug)]
+pub struct ParserState {
+    lexer: LexerState,
+    parse: Option<Box<SuspendedParse>>,
+    in_string: bool,
+}
+
+impl ParserState {
+    pub fn could_advance(&self, input: &[u8], seen: usize) -> bool {
+        if !self.in_string {
+            return true;
+        }
+
+        (seen..input.len()).any(|at| {
+            input[at] == b'"'
+                && input[..at]
+                    .iter()
+                    .rev()
+                    .take_while(|byte| **byte == b'\\')
+                    .count()
+                    % 2
+                    == 0
+        })
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -345,6 +476,99 @@ impl<'a> Parser<'a> {
     pub fn offset(&self) -> usize {
         self.tokenizer.offset()
     }
+
+    #[doc(hidden)]
+    pub fn tokens_lexed(&self) -> usize {
+        self.tokens_lexed
+    }
+
+    pub fn needs_more_input(&self, err: &ParseError) -> bool {
+        matches!(err, ParseError::UnexpectedEOF(_, _)) && !self.lexical_error_is_final
+    }
+
+    pub fn new_incremental(
+        input: &'a str,
+        source_id: Option<SourceId>,
+        more_to_come: bool,
+        at_source_start: bool,
+    ) -> Self {
+        let mut parser = Self::new_flat(input, source_id);
+
+        if !at_source_start {
+            parser.tokenizer = TokenStream::new_mid_source(input, false, source_id).into_owned();
+        }
+
+        parser.incremental = true;
+        // Note: The @doc desugar can turn one datum into two expressions, which is a bit goofy.
+        // When reader macros are added, we can move the doc comments into that and delete
+        // the additional complexity here.
+        parser.collect_doc_comments = false;
+        parser.more_to_come = more_to_come;
+        parser.input_len = input.len() as u32;
+        parser.shebang_incomplete =
+            at_source_start && more_to_come && input.starts_with("#!") && !input.contains('\n');
+        parser
+    }
+
+    pub fn resume(
+        input: &'a str,
+        source_id: Option<SourceId>,
+        state: ParserState,
+        more_to_come: bool,
+        at_source_start: bool,
+    ) -> Self {
+        let mut parser = Self::new_incremental(input, source_id, more_to_come, at_source_start);
+
+        if state.lexer.at() != 0 {
+            parser.tokenizer = OwnedTokenStream::resume(input, false, source_id, state.lexer);
+        }
+
+        if let Some(parse) = state.parse {
+            let parse = *parse;
+
+            parser.quote_stack = parse.quote_stack;
+            parser.shorthand_quote_stack = parse.shorthand_quote_stack;
+            parser.quasiquote_depth = parse.quasiquote_depth;
+            parser.quote_context = parse.quote_context;
+            parser.context = parse.context;
+            parser.levels = parse.levels;
+            parser.datum_comments = parse.datum_comments;
+        }
+
+        parser
+    }
+
+    pub fn take_state(&mut self) -> Option<ParserState> {
+        if self.resume_blocked {
+            return None;
+        }
+
+        let mut lexer = self.tokenizer.state();
+
+        if let Some(at) = self.resume_at.take() {
+            lexer.rewind_to(at);
+        }
+
+        let parse = if self.levels.is_empty() && self.datum_comments.is_empty() {
+            None
+        } else {
+            Some(Box::new(SuspendedParse {
+                levels: core::mem::take(&mut self.levels),
+                datum_comments: core::mem::take(&mut self.datum_comments),
+                quote_stack: core::mem::take(&mut self.quote_stack),
+                shorthand_quote_stack: core::mem::take(&mut self.shorthand_quote_stack),
+                quasiquote_depth: self.quasiquote_depth,
+                quote_context: self.quote_context,
+                context: core::mem::take(&mut self.context),
+            }))
+        };
+
+        Some(ParserState {
+            lexer,
+            parse,
+            in_string: core::mem::take(&mut self.resume_in_string),
+        })
+    }
 }
 
 pub type Result<T> = result::Result<T, ParseError>;
@@ -361,8 +585,22 @@ impl<'a> Parser<'a> {
             context: Vec::new(),
             comment_buffer: Vec::new(),
             collecting_comments: false,
+            collect_doc_comments: true,
             keep_lists: false,
             queued: None,
+            incremental: false,
+            levels: Vec::new(),
+            more_to_come: false,
+            input_len: 0,
+            resume_at: None,
+            resume_in_string: false,
+            resume_blocked: false,
+            datum_comments: Vec::new(),
+            datum_comment_base: 0,
+            tokens_lexed: 0,
+            prefix_depth: 0,
+            lexical_error_is_final: false,
+            shebang_incomplete: false,
         }
     }
 
@@ -372,56 +610,22 @@ impl<'a> Parser<'a> {
     }
 
     pub fn new_flat(input: &'a str, source_id: Option<SourceId>) -> Self {
-        Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
-            quote_stack: Vec::new(),
-            quasiquote_depth: 0,
-            quote_context: false,
-            shorthand_quote_stack: Vec::new(),
-            source_name: None,
-            context: Vec::new(),
-            comment_buffer: Vec::new(),
-            collecting_comments: false,
-            keep_lists: true,
-            queued: None,
-        }
+        Self::new(input, source_id).without_lowering()
     }
 
     pub fn new_from_source(
         input: &'a str,
-        source_name: PathBuf,
+        source_name: SourcePath,
         source_id: Option<SourceId>,
     ) -> Self {
-        Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
-            quote_stack: Vec::new(),
-            quasiquote_depth: 0,
-            quote_context: false,
-            shorthand_quote_stack: Vec::new(),
-            source_name: Some(Rc::from(source_name)),
-            context: Vec::new(),
-            comment_buffer: Vec::new(),
-            collecting_comments: false,
-            keep_lists: false,
-            queued: None,
-        }
+        let mut parser = Self::new(input, source_id);
+        parser.source_name = Some(Rc::from(source_name));
+        parser
     }
 
     // Attach comments!
     pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
-        Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
-            quote_stack: Vec::new(),
-            quasiquote_depth: 0,
-            quote_context: false,
-            shorthand_quote_stack: Vec::new(),
-            source_name: None,
-            context: Vec::new(),
-            comment_buffer: Vec::new(),
-            collecting_comments: false,
-            keep_lists: false,
-            queued: None,
-        }
+        Self::new(input, source_id)
     }
 
     fn construct_quote(&mut self, val: ExprKind, span: Span) -> ExprKind {
@@ -573,29 +777,42 @@ impl<'a> Parser<'a> {
         &mut self,
         (open, paren, paren_mod): (Span, Paren, Option<ParenMod>),
     ) -> Result<ExprKind> {
-        let mut last = open;
+        let (mut stack, mut current_frame, mut last, resuming) = match self.levels.pop() {
+            Some(Level::Frames {
+                stack,
+                current_frame,
+                last,
+                pending,
+                datum_comment_base,
+            }) => {
+                self.datum_comment_base = datum_comment_base;
+                (stack, current_frame, last, pending)
+            }
+            Some(Level::TopPrefix(_)) => unreachable!("handled before entering"),
+            None => {
+                self.quote_stack = Vec::new();
 
-        // Can we reuse this?
-        // TODO: I think we have to shove this into the parser state.
-        // Alongside the current frame and anything else.
-        //
-        // That way, we can just keep it around if we hit an EOF and
-        // we're in incremental mode, where we can keep feeding data
-        // in and it can continue to produce parsed values.
-        let mut stack: Vec<Frame> = Vec::new();
+                let frame = Frame {
+                    open,
+                    paren,
+                    paren_mod,
+                    exprs: ThinVec::new(),
+                    dot: None,
+                    comment: 0,
+                };
 
-        // self.stack.clear();
-
-        let mut current_frame = Frame {
-            open,
-            paren,
-            paren_mod,
-            exprs: ThinVec::new(),
-            dot: None,
-            comment: 0,
+                (Vec::new(), frame, open, None)
+            }
         };
 
-        self.quote_stack = Vec::new();
+        if let Some(pending) = resuming {
+            match self.parse_prefixed(pending) {
+                Ok(inner) => current_frame.push(inner)?,
+                Err(err) => {
+                    return Err(self.suspend_level(err, stack, current_frame, last, Some(pending)))
+                }
+            }
+        }
 
         // println!("READING FROM TOKENS");
         // self.quasiquote_depth = 0;
@@ -648,203 +865,29 @@ impl<'a> Parser<'a> {
                     current_frame.comment += 1;
                 }
 
-                TokenType::QuoteSyntax => {
-                    let quote_inner = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            token.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_syntax(x, token.span))?;
+                TokenType::QuoteSyntax
+                | TokenType::QuasiQuoteSyntax
+                | TokenType::UnquoteSyntax
+                | TokenType::UnquoteSpliceSyntax
+                | TokenType::QuoteTick
+                | TokenType::Unquote
+                | TokenType::QuasiQuote
+                | TokenType::UnquoteSplice => {
+                    let kind = PrefixKind::from_token(&token.ty).unwrap();
+                    let pending = self.enter_prefix(kind, token.span, false, stack.len());
 
-                    current_frame.push(quote_inner)?
-                }
-
-                TokenType::QuasiQuoteSyntax => {
-                    let quote_inner = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            token.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_quasiquote_syntax(x, token.span))?;
-
-                    current_frame.push(quote_inner)?
-                }
-
-                TokenType::UnquoteSyntax => {
-                    let quote_inner = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            token.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_quasiunquote_syntax(x, token.span))?;
-
-                    current_frame.push(quote_inner)?
-                }
-
-                TokenType::UnquoteSpliceSyntax => {
-                    let quote_inner = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            token.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_quasiunquote_syntax_splicing(x, token.span))?;
-
-                    current_frame.push(quote_inner)?
-                }
-
-                TokenType::QuoteTick => {
-                    // quote_count += 1;
-                    // self.quote_stack.push(current_frame.exprs.len());
-                    self.shorthand_quote_stack.push(stack.len());
-
-                    let last_context = self.quote_context;
-
-                    if self.quasiquote_depth == 0 {
-                        self.quote_context = true;
+                    match self.parse_prefixed(pending) {
+                        Ok(inner) => current_frame.push(inner)?,
+                        Err(err) => {
+                            return Err(self.suspend_level(
+                                err,
+                                stack,
+                                current_frame,
+                                last,
+                                Some(pending),
+                            ))
+                        }
                     }
-
-                    // println!("Entering context: Quote Tick in read from tokens");
-
-                    self.context.push(ParsingContext::QuoteTick(stack.len()));
-
-                    let quote_inner = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            token.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| {
-                            // if self.quasiquote_depth == 0 {
-                            self.construct_quote(x, token.span)
-                            // } else {
-                            // self.construct_fake_quote(x, token.span)
-                            // }
-                        });
-                    // self.quote_stack.pop();
-                    self.shorthand_quote_stack.pop();
-
-                    self.quote_context = last_context;
-
-                    // println!(
-                    //     "Exiting Context: {:?} in read from tokens",
-                    //     self.context.pop()
-                    // );
-
-                    // self.context.pop();
-
-                    let popped_value = self.context.pop();
-
-                    if let Some(popped) = popped_value {
-                        // dbg!(&popped);
-                        debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
-                    }
-
-                    current_frame.push(quote_inner?)?;
-                }
-                TokenType::Unquote => {
-                    // println!("Entering context: Unquote");
-
-                    // This could underflow and panic - if its negative then we have a problem. Maybe just use an isize and let it underflow?
-                    self.decrement_quasiquote_context_if_not_in_quote_context();
-
-                    self.context.push(ParsingContext::UnquoteTick(stack.len()));
-
-                    let quote_inner = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            token.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| {
-                            // dbg!(self.quasiquote_depth);
-                            // dbg!(self.quote_context);
-                            if self.quasiquote_depth == 0 && !self.quote_context {
-                                self.construct_raw_unquote(x, token.span)
-                            } else {
-                                self.construct_unquote(x, token.span)
-                            }
-                        });
-
-                    let popped_value = self.context.pop();
-
-                    self.increment_quasiquote_context_if_not_in_quote_context();
-
-                    if let Some(popped) = popped_value {
-                        debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
-                    }
-                    // println!("Exiting Context: {:?}", self.context.pop());
-                    current_frame.push(quote_inner?)?;
-                }
-                TokenType::QuasiQuote => {
-                    // println!("Entering context: Quasiquote");
-
-                    self.increment_quasiquote_context_if_not_in_quote_context();
-
-                    self.context
-                        .push(ParsingContext::QuasiquoteTick(stack.len()));
-
-                    let quote_inner = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            token.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_quasiquote(x, token.span));
-
-                    // self.context.pop();
-                    // println!(
-                    //     ">>>>>>>>>>>>>>>>>>> Exiting Context: {:?}",
-                    //     self.context.pop()
-                    // );
-
-                    let popped_value = self.context.pop();
-
-                    self.decrement_quasiquote_context_if_not_in_quote_context();
-
-                    if let Some(popped) = popped_value {
-                        debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
-                    }
-
-                    current_frame.push(quote_inner?)?;
-                }
-                TokenType::UnquoteSplice => {
-                    // println!("Entering context: UnquoteSplicing");
-
-                    self.decrement_quasiquote_context_if_not_in_quote_context();
-
-                    self.context
-                        .push(ParsingContext::UnquoteSplicingTick(stack.len()));
-
-                    let quote_inner = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            token.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| {
-                            if self.quasiquote_depth == 0 && !self.quote_context {
-                                self.construct_raw_unquote_splicing(x, token.span)
-                            } else {
-                                self.construct_unquote_splicing(x, token.span)
-                            }
-                        });
-
-                    // self.context.pop();
-
-                    let popped_value = self.context.pop();
-
-                    self.increment_quasiquote_context_if_not_in_quote_context();
-
-                    if let Some(popped) = popped_value {
-                        debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
-                    }
-
-                    // println!("Exiting Context: {:?}", self.context.pop());
-                    current_frame.push(quote_inner?)?;
                 }
                 TokenType::OpenParen(paren, paren_mod) => {
                     stack.push(current_frame);
@@ -1135,11 +1178,260 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Err(ParseError::UnexpectedEOF(last, self.source_name.clone()))
+        let eof = ParseError::UnexpectedEOF(last, self.source_name.clone());
+
+        Err(self.suspend_level(eof, stack, current_frame, last, None))
+    }
+
+    fn suspend_level(
+        &mut self,
+        err: ParseError,
+        stack: Vec<Frame>,
+        current_frame: Frame,
+        last: Span,
+        pending: Option<PendingPrefix>,
+    ) -> ParseError {
+        let resumable = self.incremental && !self.resume_blocked && self.needs_more_input(&err);
+
+        if resumable {
+            self.levels.push(Level::Frames {
+                stack,
+                current_frame,
+                last,
+                pending,
+                datum_comment_base: self.datum_comment_base,
+            });
+
+            return err;
+        }
+
+        self.resume_blocked = true;
+
+        if let Some(pending) = pending {
+            self.exit_prefix(pending.kind, pending.saved_quote_context);
+        }
+
+        err
+    }
+
+    fn suspend_top_prefix(&mut self, err: ParseError, pending: PendingPrefix) -> ParseError {
+        let resumable = self.incremental && !self.resume_blocked && self.needs_more_input(&err);
+
+        if resumable {
+            self.levels.push(Level::TopPrefix(pending));
+
+            return err;
+        }
+
+        self.resume_blocked = true;
+        self.exit_prefix(pending.kind, pending.saved_quote_context);
+
+        err
+    }
+
+    fn enter_prefix(
+        &mut self,
+        kind: PrefixKind,
+        span: Span,
+        top_level: bool,
+        depth: usize,
+    ) -> PendingPrefix {
+        let saved_quote_context = self.quote_context;
+
+        match kind {
+            PrefixKind::QuoteSyntax
+            | PrefixKind::QuasiQuoteSyntax
+            | PrefixKind::UnquoteSyntax
+            | PrefixKind::UnquoteSpliceSyntax => {}
+            PrefixKind::QuoteTick => {
+                self.shorthand_quote_stack.push(depth);
+
+                if self.quasiquote_depth == 0 {
+                    self.quote_context = true;
+                }
+
+                self.context.push(ParsingContext::QuoteTick(depth));
+            }
+            PrefixKind::Unquote => {
+                self.decrement_quasiquote_context_if_not_in_quote_context();
+                self.context.push(ParsingContext::UnquoteTick(depth));
+            }
+            PrefixKind::QuasiQuote => {
+                self.increment_quasiquote_context_if_not_in_quote_context();
+                self.context.push(ParsingContext::QuasiquoteTick(depth));
+            }
+            PrefixKind::UnquoteSplice => {
+                self.decrement_quasiquote_context_if_not_in_quote_context();
+                self.context
+                    .push(ParsingContext::UnquoteSplicingTick(depth));
+            }
+        }
+
+        PendingPrefix {
+            kind,
+            span,
+            saved_quote_context,
+            top_level,
+            nested_base: self.datum_comments.len(),
+            owner_base: self.datum_comment_base,
+        }
+    }
+
+    fn parse_prefixed(&mut self, pending: PendingPrefix) -> Result<ExprKind> {
+        let PendingPrefix {
+            kind,
+            span,
+            saved_quote_context,
+            top_level,
+            nested_base,
+            owner_base: _,
+        } = pending;
+
+        // NOTE: We're putting an arbitrary depth here to make sure we don't stack overflow
+        if self.incremental && self.prefix_depth >= MAX_PREFIX_DEPTH {
+            return Err(self.too_deep(span));
+        }
+
+        let outer_base = self.datum_comment_base;
+        self.datum_comment_base = nested_base;
+        self.prefix_depth += 1;
+
+        let inner = self.next().unwrap_or(Err(ParseError::UnexpectedEOF(
+            span,
+            self.source_name.clone(),
+        )));
+
+        self.prefix_depth -= 1;
+        self.datum_comment_base = outer_base;
+
+        let inner = inner?;
+
+        self.wrap_prefix(kind, span, top_level, saved_quote_context, inner)
+    }
+
+    #[inline(never)]
+    fn wrap_prefix(
+        &mut self,
+        kind: PrefixKind,
+        span: Span,
+        top_level: bool,
+        saved_quote_context: bool,
+        inner: ExprKind,
+    ) -> Result<ExprKind> {
+        let wrapped = match kind {
+            PrefixKind::QuoteSyntax => self.construct_syntax(inner, span),
+            PrefixKind::QuasiQuoteSyntax => self.construct_quasiquote_syntax(inner, span),
+            PrefixKind::UnquoteSyntax => self.construct_quasiunquote_syntax(inner, span),
+            PrefixKind::UnquoteSpliceSyntax => {
+                self.construct_quasiunquote_syntax_splicing(inner, span)
+            }
+            PrefixKind::QuoteTick => {
+                if top_level {
+                    let quoted = self.construct_quote_vec(inner, span);
+                    let lowered = self.maybe_lower(quoted);
+
+                    self.exit_prefix(kind, saved_quote_context);
+
+                    return lowered;
+                }
+
+                self.construct_quote(inner, span)
+            }
+            PrefixKind::Unquote => {
+                if self.quasiquote_depth == 0 && !self.quote_context {
+                    self.construct_raw_unquote(inner, span)
+                } else {
+                    self.construct_unquote(inner, span)
+                }
+            }
+            PrefixKind::QuasiQuote => self.construct_quasiquote(inner, span),
+            PrefixKind::UnquoteSplice => {
+                if self.quasiquote_depth == 0 && !self.quote_context {
+                    self.construct_raw_unquote_splicing(inner, span)
+                } else {
+                    self.construct_unquote_splicing(inner, span)
+                }
+            }
+        };
+
+        self.exit_prefix(kind, saved_quote_context);
+
+        Ok(wrapped)
+    }
+
+    #[inline(never)]
+    fn too_deep(&self, span: Span) -> ParseError {
+        ParseError::SyntaxError(
+            format!("more than {MAX_PREFIX_DEPTH} nested quote prefixes"),
+            span,
+            self.source_name.clone(),
+        )
+    }
+
+    fn exit_prefix(&mut self, kind: PrefixKind, saved_quote_context: bool) {
+        match kind {
+            PrefixKind::QuoteSyntax
+            | PrefixKind::QuasiQuoteSyntax
+            | PrefixKind::UnquoteSyntax
+            | PrefixKind::UnquoteSpliceSyntax => {}
+            PrefixKind::QuoteTick => {
+                self.shorthand_quote_stack.pop();
+                self.quote_context = saved_quote_context;
+                let popped = self.context.pop();
+                debug_assert!(matches!(popped, Some(ParsingContext::QuoteTick(_))));
+            }
+            PrefixKind::Unquote => {
+                let popped = self.context.pop();
+                self.increment_quasiquote_context_if_not_in_quote_context();
+                debug_assert!(matches!(popped, Some(ParsingContext::UnquoteTick(_))));
+            }
+            PrefixKind::QuasiQuote => {
+                let popped = self.context.pop();
+                self.decrement_quasiquote_context_if_not_in_quote_context();
+                debug_assert!(matches!(popped, Some(ParsingContext::QuasiquoteTick(_))));
+            }
+            PrefixKind::UnquoteSplice => {
+                let popped = self.context.pop();
+                self.increment_quasiquote_context_if_not_in_quote_context();
+                debug_assert!(matches!(
+                    popped,
+                    Some(ParsingContext::UnquoteSplicingTick(_))
+                ));
+            }
+        }
     }
 
     fn next_token(&mut self) -> Option<Result<Token<'a, InternedString>>> {
+        if self.shebang_incomplete {
+            self.resume_at = Some(0);
+            return None;
+        }
+
         let res = self.tokenizer.next()?;
+
+        if self.more_to_come {
+            let touches_end = match &res {
+                Ok(token) => token.span.end >= self.input_len && can_continue(&token.ty),
+                Err(err) => err.span.end >= self.input_len,
+            };
+
+            if res.is_err() && !touches_end {
+                self.lexical_error_is_final = true;
+            }
+
+            if touches_end {
+                self.resume_at = Some(match &res {
+                    Ok(token) => token.span.start,
+                    Err(_) => self.tokenizer.state().token_start(),
+                });
+                self.resume_in_string =
+                    matches!(&res, Err(err) if err.ty == TokenError::IncompleteString);
+
+                return None;
+            }
+        }
+
+        self.tokens_lexed += 1;
 
         Some(res.map_err(|err| ParseError::from(err).set_source(self.source_name.clone())))
     }
@@ -1201,17 +1493,21 @@ fn wrap_in_doc_function(expr: ExprKind, comment: String) -> DocResult {
 
 impl<'a> Parser<'a> {
     fn get_next_and_maybe_wrap_in_doc(&mut self) -> Option<Result<ExprKind>> {
-        let mut datum_comments = thin_vec![];
+        let base = self.datum_comment_base;
 
         macro_rules! maybe_return {
             ($value:expr) => {{
                 let value = $value;
 
                 if value.is_ok() {
-                    if datum_comments.len() > 0 {
-                        let _ = datum_comments.pop();
+                    if self.datum_comments.len() > base {
+                        self.datum_comments.pop();
 
                         continue;
+                    }
+                } else if let Err(err) = &value {
+                    if !self.needs_more_input(err) {
+                        self.datum_comments.truncate(base);
                     }
                 }
 
@@ -1223,13 +1519,18 @@ impl<'a> Parser<'a> {
             let res = match res {
                 Ok(res) => res,
                 Err(err) => {
+                    if !self.needs_more_input(&err) {
+                        self.datum_comments.truncate(base);
+                    }
+
                     return Some(Err(err));
                 }
             };
 
             match res.ty {
                 TokenType::Comment => {
-                    if self.comment_buffer.is_empty()
+                    if self.collect_doc_comments
+                        && self.comment_buffer.is_empty()
                         && !self.collecting_comments
                         && res.source().trim_start_matches(';').starts_with("@doc")
                     {
@@ -1262,195 +1563,27 @@ impl<'a> Parser<'a> {
                 }
 
                 TokenType::DatumComment => {
-                    datum_comments.push(res.span);
+                    self.datum_comments.push(res.span);
                 }
 
                 // Just turn this into `syntax`
-                TokenType::QuoteSyntax => {
-                    let value = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            res.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_syntax(x, res.span));
+                TokenType::QuoteSyntax
+                | TokenType::QuasiQuoteSyntax
+                | TokenType::UnquoteSyntax
+                | TokenType::UnquoteSpliceSyntax
+                | TokenType::QuoteTick
+                | TokenType::Unquote
+                | TokenType::QuasiQuote
+                | TokenType::UnquoteSplice => {
+                    let kind = PrefixKind::from_token(&res.ty).unwrap();
+                    let pending = self.enter_prefix(kind, res.span, true, 0);
 
-                    maybe_return![value];
-                }
-
-                TokenType::QuasiQuoteSyntax => {
-                    let value = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            res.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_quasiquote_syntax(x, res.span));
-
-                    maybe_return![value];
-                }
-
-                TokenType::UnquoteSyntax => {
-                    let quote_inner = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            res.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_quasiunquote_syntax(x, res.span));
-
-                    maybe_return!(quote_inner);
-                }
-
-                TokenType::UnquoteSpliceSyntax => {
-                    let quote_inner = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            res.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_quasiunquote_syntax_splicing(x, res.span));
-
-                    maybe_return!(quote_inner);
-                }
-
-                TokenType::QuoteTick => {
-                    // See if this does the job
-                    self.shorthand_quote_stack.push(0);
-
-                    let last = self.quote_context;
-
-                    if self.quasiquote_depth == 0 {
-                        self.quote_context = true;
-                    }
-
-                    // self.quote_context = true;
-
-                    // println!("Entering Context: Quote Tick");
-                    self.context.push(ParsingContext::QuoteTick(0));
-
-                    let value = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            res.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_quote_vec(x, res.span));
-
-                    self.shorthand_quote_stack.pop();
-
-                    let popped_value = self.context.pop();
-
-                    if let Some(popped) = popped_value {
-                        // dbg!(&popped);
-                        debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
-                    }
-
-                    self.quote_context = last;
-
-                    // println!("Exiting context: {:?}", self.context.pop());
-                    // println!("Result: {:?}", value);
-
-                    // println!("{}", List::new(value.clone().unwrap()));
-
-                    maybe_return!(match value {
-                        Ok(v) => {
-                            // Ok(ExprKind::List(List::new(v)))
-
-                            self.maybe_lower(v)
+                    match self.parse_prefixed(pending) {
+                        Ok(value) => maybe_return![Ok(value)],
+                        Err(err) => {
+                            return Some(Err(self.suspend_top_prefix(err, pending)));
                         }
-                        Err(e) => Err(e),
-                    });
-                }
-
-                TokenType::Unquote => {
-                    // println!("Entering Context: Unquote");
-                    self.context.push(ParsingContext::UnquoteTick(0));
-
-                    self.decrement_quasiquote_context_if_not_in_quote_context();
-
-                    let value = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            res.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| {
-                            // dbg!(&self.quasiquote_depth);
-                            if self.quasiquote_depth == 0 && !self.quote_context {
-                                self.construct_raw_unquote(x, res.span)
-                            } else {
-                                self.construct_unquote(x, res.span)
-                            }
-                        });
-
-                    let popped_value = self.context.pop();
-
-                    self.increment_quasiquote_context_if_not_in_quote_context();
-
-                    if let Some(popped) = popped_value {
-                        debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
                     }
-                    // println!("Exiting context: {:?}", self.context.pop());
-
-                    maybe_return!(value);
-                }
-
-                TokenType::UnquoteSplice => {
-                    // println!("Entering Context: Unquotesplicing");
-                    self.context.push(ParsingContext::UnquoteSplicingTick(0));
-
-                    self.decrement_quasiquote_context_if_not_in_quote_context();
-
-                    let value = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            res.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| {
-                            if self.quasiquote_depth == 0 && !self.quote_context {
-                                self.construct_raw_unquote_splicing(x, res.span)
-                            } else {
-                                self.construct_unquote_splicing(x, res.span)
-                            }
-                        });
-
-                    let popped_value = self.context.pop();
-
-                    self.increment_quasiquote_context_if_not_in_quote_context();
-
-                    if let Some(popped) = popped_value {
-                        debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
-                    }
-
-                    // println!("Exiting context: {:?}", self.context.pop());
-
-                    maybe_return!(value);
-                }
-                // Make this also handle quasisyntax
-                TokenType::QuasiQuote => {
-                    self.context.push(ParsingContext::QuasiquoteTick(0));
-
-                    self.increment_quasiquote_context_if_not_in_quote_context();
-
-                    let value = self
-                        .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(
-                            res.span,
-                            self.source_name.clone(),
-                        )))
-                        .map(|x| self.construct_quasiquote(x, res.span));
-
-                    let popped_value = self.context.pop();
-
-                    if let Some(popped) = popped_value {
-                        debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
-                    }
-
-                    self.decrement_quasiquote_context_if_not_in_quote_context();
-
-                    maybe_return![value];
                 }
 
                 TokenType::OpenParen(paren, paren_mod) => {
@@ -1473,10 +1606,14 @@ impl<'a> Parser<'a> {
             };
         }
 
-        if !datum_comments.is_empty() {
+        if self.datum_comments.len() > base {
+            if self.incremental && self.more_to_come {
+                return None;
+            }
+
             return Some(Err(ParseError::SyntaxError(
                 "unfinished commented-out expression".into(),
-                datum_comments.pop().unwrap(),
+                self.datum_comments.pop().unwrap(),
                 None,
             )));
         }
@@ -1493,6 +1630,42 @@ impl<'a> Iterator for Parser<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(next) = self.queued.take() {
             return Some(Ok(next));
+        }
+
+        self.next_inner()
+    }
+}
+
+impl<'a> Parser<'a> {
+    fn next_inner(&mut self) -> Option<Result<ExprKind>> {
+        let resumed = match self.levels.last() {
+            Some(Level::TopPrefix(pending)) => {
+                let pending = *pending;
+                self.levels.pop();
+                self.datum_comment_base = pending.owner_base;
+
+                Some(
+                    self.parse_prefixed(pending)
+                        .map_err(|err| self.suspend_top_prefix(err, pending)),
+                )
+            }
+            Some(Level::Frames { current_frame, .. }) => {
+                let open = current_frame.open;
+                let paren = current_frame.paren;
+                let paren_mod = current_frame.paren_mod;
+
+                Some(self.read_from_tokens((open, paren, paren_mod)))
+            }
+            None => None,
+        };
+
+        if let Some(result) = resumed {
+            match result {
+                Ok(_) if self.datum_comments.len() > self.datum_comment_base => {
+                    self.datum_comments.pop();
+                }
+                other => return Some(other),
+            }
         }
 
         if self.quote_stack.is_empty()
@@ -3157,9 +3330,9 @@ mod parser_tests {
     #[test]
     fn test_define_with_datum_syntax_name() {
         assert_parse(
-            "(define (datum->syntax var) (car ret-value))",
+            "(define (#%join-identifiers var) (car ret-value))",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::List(List::new(thin_vec![atom("datum->syntax"), atom("var")])),
+                ExprKind::List(List::new(thin_vec![atom("#%join-identifiers"), atom("var")])),
                 ExprKind::List(List::new(thin_vec![atom("car"), atom("ret-value")])),
                 SyntaxObject::default(TokenType::Define),
             )))],
@@ -3169,9 +3342,9 @@ mod parser_tests {
     #[test]
     fn test_define_with_datum_syntax_function_name() {
         assert_parse(
-            "(define ((datum->syntax var) arg) 10)",
+            "(define ((#%join-identifiers var) arg) 10)",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::List(List::new(thin_vec![atom("datum->syntax"), atom("var")])),
+                ExprKind::List(List::new(thin_vec![atom("#%join-identifiers"), atom("var")])),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                     thin_vec![atom("arg")],
                     int(10),
@@ -3332,127 +3505,3 @@ mod parser_tests {
         );
     }
 }
-
-use core::cell::RefCell;
-use core::default::Default;
-use core::ops::{Deref, DerefMut};
-
-pub trait Recyclable {
-    fn put(self);
-    fn get() -> Self;
-    fn get_with_capacity(capacity: usize) -> Self;
-}
-
-pub struct Recycle<T: Recyclable + Default> {
-    t: T,
-}
-
-impl<T: Recyclable + Default> Default for Recycle<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T: Recyclable + Default> Recycle<T> {
-    pub fn new() -> Self {
-        Recycle { t: T::get() }
-    }
-
-    pub fn new_with_capacity(capacity: usize) -> Self {
-        Recycle {
-            t: T::get_with_capacity(capacity),
-        }
-    }
-}
-
-impl<T: Recyclable + Default> Drop for Recycle<T> {
-    fn drop(&mut self) {
-        T::put(core::mem::take(&mut self.t))
-    }
-}
-
-impl<T: Recyclable + Default> Deref for Recycle<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        &self.t
-    }
-}
-
-impl<T: Recyclable + Default + 'static> DerefMut for Recycle<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        &mut self.t
-    }
-}
-
-impl<T: Recyclable + Clone + Default> Clone for Recycle<T> {
-    fn clone(&self) -> Self {
-        Recycle { t: self.t.clone() }
-    }
-}
-
-impl<T: Recyclable + core::fmt::Debug + Default> core::fmt::Debug for Recycle<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Recycle").field("t", &self.t).finish()
-    }
-}
-
-impl<T: Recyclable + core::hash::Hash + Default> core::hash::Hash for Recycle<T> {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.t.hash(state);
-    }
-}
-
-macro_rules! impl_recyclable {
-    ($tl:ident, $t:ty) => {
-        impl_recyclable!($tl, $t, Default::default(), Self::with_capacity);
-    };
-    ($tl:ident, $t:ty, $constructor:expr, $constructor_capacity:expr) => {
-        thread_local! {
-            static $tl: RefCell<Vec<$t>> = RefCell::new(Vec::new())
-        }
-
-        impl Recyclable for $t {
-            fn put(mut self) {
-                let _ = $tl.try_with(|p| {
-                    let p = p.try_borrow_mut();
-
-                    if let Ok(mut p) = p {
-                        // This _should_ be cleared, but it seems it is not!
-                        // debug_assert!(self.is_empty());
-                        // self.clear();
-
-                        // for frame in &self {
-                        //     for expr in &frame.exprs {
-                        //         println!("dropping: {}", expr);
-                        //     }
-                        // }
-
-                        // dbg!(&self);
-                        self.clear();
-
-                        p.push(self);
-                    }
-                });
-            }
-
-            fn get() -> Self {
-                $tl.with(|p| {
-                    let mut p = p.borrow_mut();
-                    p.pop()
-                })
-                .unwrap_or($constructor)
-            }
-
-            fn get_with_capacity(capacity: usize) -> Self {
-                $tl.with(|p| {
-                    let mut p = p.borrow_mut();
-                    p.pop()
-                })
-                .unwrap_or(($constructor_capacity)(capacity))
-            }
-        }
-    };
-}
-
-impl_recyclable!(TL_V_STEELVAL, Vec<Frame>);

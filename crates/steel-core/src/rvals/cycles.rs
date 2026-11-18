@@ -2282,10 +2282,9 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     continue;
                 }
                 (Complex(l), Complex(r)) => {
-                    self.left.push_back(l.re.clone());
-                    self.right.push_back(r.re.clone());
-                    self.left.push_back(l.im.clone());
-                    self.right.push_back(r.im.clone());
+                    if l != r {
+                        return false;
+                    }
 
                     continue;
                 }
@@ -2414,6 +2413,18 @@ impl<'a> RecursiveEqualityHandler<'a> {
                 }
                 (MutFunc(l), MutFunc(r)) => {
                     if l as usize != r as usize {
+                        return false;
+                    }
+                    continue;
+                }
+                (BoxedFunction(l), BoxedFunction(r)) => {
+                    if !Gc::ptr_eq(&l, &r) {
+                        return false;
+                    }
+                    continue;
+                }
+                (ByteVector(l), ByteVector(r)) => {
+                    if l != r {
                         return false;
                     }
                     continue;

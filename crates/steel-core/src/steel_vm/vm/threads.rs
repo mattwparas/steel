@@ -1024,8 +1024,9 @@ pub static EMPTY_CHANNEL_OBJECT: once_cell::sync::Lazy<(
 pub static DISCONNECTED_CHANNEL_OBJECT: once_cell::sync::Lazy<(
     SteelVal,
     crate::values::structs::StructTypeDescriptor,
-)> =
-    once_cell::sync::Lazy::new(|| crate::values::structs::make_struct_singleton("#%empty-channel"));
+)> = once_cell::sync::Lazy::new(|| {
+    crate::values::structs::make_struct_singleton("#%disconnected-channel")
+});
 
 /// Returns `#t` if the value is an empty-channel object.
 ///
@@ -1059,9 +1060,9 @@ pub fn empty_channel() -> SteelVal {
     }
 }
 
-/// Returns `#t` if the value is an disconnected-channel object.
+/// Returns `#t` if the value is a disconnected-channel object.
 ///
-/// (eof-object? any/c) -> bool?
+/// (disconnected-channel-object? any/c) -> bool?
 #[function(name = "disconnected-channel-object?", args(Any), raises = Never)]
 pub fn disconnected_channel_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {

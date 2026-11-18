@@ -39,6 +39,38 @@ If *proc* returns, then the port will be closed and the return value of *proc* r
 
 - port : port?
 - proc : procedure?
+### **file-position**
+Returns the position of a port, or sets it when given `position`.
+
+(file-position port [position]) -> (or/c int? void?)
+
+* port : port?
+* position : (or/c int? eof-object?)
+### **file-position\***
+Returns the position of a port, or `#f` for a port that has no position.
+
+(file-position* port) -> (or/c int? #f)
+
+* port : port?
+### **file-truncate**
+Sets the length of the file behind an output port.
+
+(file-truncate port length) -> void?
+
+* port : output-port?
+* length : int?
+### **fsync**
+Flushes a port. For a file port, also waits for the os to write the bytes to disk.
+
+(fsync port) -> void?
+
+* port : output-port?
+### **ftell**
+Returns the position of a port.
+
+(ftell port) -> int?
+
+* port : port?
 ### **peek-byte**
 Peeks the next byte from an input port.
 
@@ -55,8 +87,12 @@ Peeks the next character from an input port.
 Alias of `peek-byte`.
 ### **port->bytes**
 Alias of `read-port-to-bytes`.
+### **port->bytes\***
+Alias of `read-port-to-bytes*`.
 ### **port->string**
 Alias of `read-port-to-string`.
+### **port->string\***
+Alias of `read-port-to-string*`.
 ### **read-byte**
 Reads a single byte from an input port.
 
@@ -103,18 +139,36 @@ Reads a line from an input port.
 (read-line [port]) -> string?
 
 * port : input-port? = (current-input-port)
+### **read-line\***
+Reads a line from an input port, without waiting.
+
+(read-line* [port]) -> (or string? would-block-object?)
+
+* port : input-port? = (current-input-port)
 ### **read-port-to-bytes**
 Reads the entire content of an input port into a byte vector.
 
 (read-port-to-bytes [port]) -> string?
 
-* [port] : input-port? = (current-input-port)
+* port : input-port? = (current-input-port)
+### **read-port-to-bytes\***
+Reads the entire content of an input port into a byte vector, without waiting.
+
+(read-port-to-bytes* [port]) -> (or bytes? would-block-object?)
+
+* port : input-port? = (current-input-port)
 ### **read-port-to-string**
 Reads the entire content of an input port into a string.
 
 (read-port-to-string [port]) -> string?
 
-* [port] : input-port? = (current-input-port)
+* port : input-port? = (current-input-port)
+### **read-port-to-string\***
+Reads the entire content of an input port into a string, without waiting.
+
+(read-port-to-string* [port]) -> (or string? would-block-object?)
+
+* port : input-port? = (current-input-port)
 ### **read-u8**
 Alias of `read-byte`.
 ### **with-input-from-file**

@@ -74,3 +74,17 @@
   (assert-equal! (read-bytes! buf input-port) 4)
   (assert-equal! buf (string->utf8 " twoe\0\0"))
   (assert! (eof-object? (peek-char input-port))))
+
+(define replacement (bytes->string/utf-8 (bytes #xef #xbf #xbd)))
+
+(let ([out (open-output-string)])
+  (write-bytes (bytes 97 255 98) out)
+  (assert-equal! (get-output-string out) (string-append "a" replacement "b")))
+
+(assert-equal! (bytes->string/utf-8 (bytes 97 98)) "ab")
+(assert-equal! 'err (with-handler (lambda (err) 'err) (bytes->string/utf-8 (bytes 97 255 98))))
+
+(let ([port (open-input-string ";;@doc a\n;; b\n(define-syntax m (syntax-rules () ((_) 1)))\n(tail)\n")])
+  (assert-equal! (read port) '(define-syntax m (syntax-rules () ((_) 1))))
+  (assert-equal! (read port) '(tail))
+  (assert! (eof-object? (read port))))

@@ -1,8 +1,8 @@
 # steel/threads
 ### **disconnected-channel-object?**
-Returns `#t` if the value is an disconnected-channel object.
+Returns `#t` if the value is a disconnected-channel object.
 
-(eof-object? any/c) -> bool?
+(disconnected-channel-object? any/c) -> bool?
 ### **empty-channel-object?**
 Returns `#t` if the value is an empty-channel object.
 

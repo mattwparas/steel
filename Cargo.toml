@@ -67,6 +67,7 @@ cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.8.3" }
 
 [workspace]
 members = [".", "crates/*", "libs/*"]
+exclude = ["crates/steel-parser/fuzz"]
 
 [profile.release]
 debug = true

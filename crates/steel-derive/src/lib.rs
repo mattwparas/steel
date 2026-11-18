@@ -956,7 +956,10 @@ fn arity_code_injection(
         .get("arity")
         .expect("native definition requires an arity");
 
-    let func_name = input.sig.ident.to_string();
+    let func_name = keyword_map
+        .get("name")
+        .cloned()
+        .unwrap_or_else(|| input.sig.ident.to_string());
 
     //Context functions have 'ctx' as the first argument, so we get the second one for them
     let sig_inputs = if is_context_function {
@@ -1750,7 +1753,11 @@ pub fn function(
     };
 
     let aliases = match keyword_map.get("alias") {
-        Some(alias) => quote! { &[ #alias ] },
+        Some(aliases) => {
+            let names = aliases.split(',').map(str::trim).collect::<Vec<_>>();
+
+            quote! { &[ #(#names),* ] }
+        }
         None => quote! { &[] },
     };
 
@@ -2161,7 +2168,11 @@ pub fn custom_function(
     };
 
     let aliases = match keyword_map.get("alias") {
-        Some(alias) => quote! { &[ #alias ] },
+        Some(aliases) => {
+            let names = aliases.split(',').map(str::trim).collect::<Vec<_>>();
+
+            quote! { &[ #(#names),* ] }
+        }
         None => quote! { &[] },
     };
 

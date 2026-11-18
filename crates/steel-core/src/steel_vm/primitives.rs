@@ -83,9 +83,13 @@ use crate::{
     },
 };
 
+use crate::parser::parser::{ParseError, Parser};
+use crate::primitives::ports::{eof, would_block_object};
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
 };
+use crate::values::port::MaybeBlocking;
+use crate::values::port::{SteelPort, SteelPortRepr};
 
 use crate::{
     rvals::IntoSteelVal,
@@ -101,7 +105,11 @@ use core::cmp::Ordering;
 use once_cell::sync::Lazy;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
-use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
+use steel_parser::{
+    ast::ExprKind,
+    interner::interned_current_memory_usage,
+    parser::{ParserState, SourceId},
+};
 
 #[cfg(not(target_family = "wasm"))]
 use crate::primitives::polling::polling_module;
@@ -2175,96 +2183,133 @@ impl crate::rvals::Custom for MutableVector {
     }
 }
 
-#[derive(Clone)]
-struct Reader {
-    buffer: String,
-    offset: usize,
-}
+fn lossy_text(pending: &[u8], at_eof: bool) -> Cow<'_, str> {
+    let mut text = String::new();
+    let mut rest = pending;
 
-impl crate::rvals::Custom for Reader {
-    fn into_serializable_steelval(&mut self) -> Option<crate::rvals::SerializableSteelVal> {
-        // Some(crate::rvals::SerializableSteelVal::Custom(Box::new(
-        //     self.clone(),
-        // )))
-
-        None
-    }
-}
-
-impl Reader {
-    fn create_reader() -> Reader {
-        Self {
-            buffer: String::new(),
-            offset: 0,
-        }
-    }
-
-    fn push_string(&mut self, input: crate::rvals::SteelString) {
-        self.buffer.push_str(input.as_str());
-    }
-
-    fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
-    }
-
-    fn read_one_impl(&mut self, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
-        if let Some(buffer) = self.buffer.get(self.offset..) {
-            let mut parser = crate::parser::parser::Parser::new_flat(buffer, SourceId::none());
-
-            // TODO: This reparses everything while it hasn't yet finished the expression.
-            // What we need to do is keep the parser around while we finish it.
-            // For that, we should leave the parser around, and just leak buffer?
-            // or swap in something else? I think the stack needs to be saved
-            // in between runs. If we hit a situation where we EOF, we want to
-            // resume where we were, and keep the stack in the proper spot. Otherwise,
-            // we reparse everything up to that point since we're reading line by line?
-            if let Some(raw) = parser.next() {
-                let next = match raw {
-                    Ok(next) => next,
-                    // Err(steel_parser::parser::ParseError::UnexpectedEOF(_, _)) => {
-                    //     return Ok(SteelVal::Void);
-                    // }
-                    _ => {
-                        // dbg!(parser.offset());
-
-                        return Ok(SteelVal::Void);
-                    }
-                };
-
-                self.offset += parser.offset();
-
-                let result = finisher(next);
-
-                if let Some(remaining) = self.buffer.get(self.offset..) {
-                    for _ in remaining.chars().take_while(|x| x.is_whitespace()) {
-                        self.offset += 1;
-                    }
-                }
-
-                if self.offset == self.buffer.len() {
-                    self.buffer.clear();
-                    self.offset = 0;
-                }
-
-                result
-            } else {
-                // No value, keep reading
-                Ok(SteelVal::Void)
+    loop {
+        let err = match core::str::from_utf8(rest) {
+            Ok(valid) if text.is_empty() => return Cow::Borrowed(valid),
+            Ok(valid) => {
+                text.push_str(valid);
+                return Cow::Owned(text);
             }
-        } else {
-            // TODO: This needs to get fixed
-            Ok(crate::primitives::ports::eof())
+            Err(err) => err,
+        };
+
+        let (valid, bad) = rest.split_at(err.valid_up_to());
+        let valid = core::str::from_utf8(valid).unwrap();
+
+        let len = match err.error_len() {
+            Some(len) => len,
+            None if at_eof => bad.len(),
+            None if text.is_empty() => return Cow::Borrowed(valid),
+            None => {
+                text.push_str(valid);
+                return Cow::Owned(text);
+            }
+        };
+
+        text.push_str(valid);
+        text.push(char::REPLACEMENT_CHARACTER);
+        rest = &bad[len..];
+    }
+}
+
+fn raw_offset(pending: &[u8], offset: usize, at_eof: bool) -> usize {
+    let mut raw = 0;
+    let mut text = 0;
+
+    loop {
+        let err = match core::str::from_utf8(&pending[raw..]) {
+            Ok(_) => return usize::min(raw + (offset - text), pending.len()),
+            Err(err) => err,
+        };
+
+        let valid = err.valid_up_to();
+
+        if offset <= text + valid {
+            return raw + (offset - text);
+        }
+
+        let len = match err.error_len() {
+            Some(len) => len,
+            None if at_eof => pending.len() - raw - valid,
+            None => return raw + valid,
+        };
+
+        raw += valid + len;
+        text += valid + char::REPLACEMENT_CHARACTER.len_utf8();
+
+        if offset < text {
+            return raw;
         }
     }
+}
 
-    fn read_one(&mut self) -> Result<SteelVal> {
-        self.read_one_impl(TryFromExprKindForSteelVal::try_from_expr_kind_quoted)
+enum Attempt {
+    Parsed(ExprKind, usize),
+    Nothing,
+    Incomplete,
+}
+
+fn attempt_parse(
+    port: &mut SteelPortRepr,
+    state: &mut Option<ParserState>,
+    at_eof: bool,
+) -> Result<Attempt> {
+    if port.pending().is_empty() {
+        return Ok(Attempt::Nothing);
     }
 
-    fn read_one_syntax_object(&mut self) -> Result<SteelVal> {
-        self.read_one_impl(
-            crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind,
-        )
+    let saved = state.take();
+    let at_source_start = port.at_source_start();
+
+    let outcome = {
+        let pending = port.pending();
+        let text = lossy_text(pending, at_eof);
+        let text: &str = &text;
+
+        let hold_back = !at_eof;
+
+        let mut parser = match saved {
+            Some(state) => {
+                Parser::resume(text, SourceId::none(), state, hold_back, at_source_start)
+            }
+            None => Parser::new_incremental(text, SourceId::none(), hold_back, at_source_start),
+        };
+
+        let result = parser.next();
+        let offset = parser.offset();
+
+        match result {
+            Some(Ok(expr)) => Outcome::Parsed(expr, raw_offset(pending, offset, at_eof)),
+            Some(Err(err)) if parser.needs_more_input(&err) => {
+                Outcome::Incomplete(parser.take_state())
+            }
+            Some(Err(err)) => {
+                let bad = usize::min(usize::max(err.span().end as usize, 1), text.len());
+
+                Outcome::Bad(err, raw_offset(pending, bad, at_eof))
+            }
+            None => Outcome::Nothing(parser.take_state()),
+        }
+    };
+
+    match outcome {
+        Outcome::Parsed(expr, offset) => Ok(Attempt::Parsed(expr, offset)),
+        Outcome::Incomplete(saved) => {
+            *state = saved;
+            Ok(Attempt::Incomplete)
+        }
+        Outcome::Nothing(saved) => {
+            *state = saved;
+            Ok(Attempt::Nothing)
+        }
+        Outcome::Bad(err, amt) => {
+            port.consume_pending(amt);
+            Err(err.into())
+        }
     }
 }
 
@@ -2553,6 +2598,90 @@ fn raw_syntax_to_datum(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Ste
     ))
 }
 
+
+enum Outcome {
+    Parsed(ExprKind, usize),
+    Incomplete(Option<ParserState>),
+    Nothing(Option<ParserState>),
+    Bad(ParseError, usize),
+}
+
+fn read_datum(port: &SteelPort, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
+    let expr = {
+        // Note: we're going to hold the lock for the whole datum we read
+        // so that concurrent readers don't produce garbage. I'm not sure
+        // other implementations do this, but for now this seems fine.
+        let mut guard = port.port.write();
+        let mut at_eof = false;
+        let mut state = guard.take_parse_state();
+
+        loop {
+            let attempt = attempt_parse(&mut guard, &mut state, at_eof)?;
+
+            match attempt {
+                Attempt::Parsed(expr, consumed) => {
+                    guard.consume_pending(consumed);
+                    break expr;
+                }
+                Attempt::Nothing | Attempt::Incomplete => {
+                    if at_eof {
+                        let len = guard.pending().len();
+                        guard.consume_pending(len);
+
+                        return match attempt {
+                            Attempt::Nothing => Ok(eof()),
+                            Attempt::Incomplete => {
+                                stop!(Generic => "read: unexpected eof while reading datum")
+                            }
+                            Attempt::Parsed(..) => unreachable!("handled above"),
+                        };
+                    }
+
+                    loop {
+                        let seen = guard.pending().len();
+
+                        match guard.fill_more()? {
+                            MaybeBlocking::Nonblocking(0) => {
+                                at_eof = true;
+                                break;
+                            }
+                            MaybeBlocking::Nonblocking(_) => {
+                                let stuck = state.as_ref().is_some_and(|state| {
+                                    !state.could_advance(guard.pending(), seen)
+                                });
+
+                                if !stuck {
+                                    break;
+                                }
+                            }
+                            MaybeBlocking::WouldBlock => {
+                                guard.save_parse_state(state.take());
+
+                                return Ok(would_block_object());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    finisher(expr)
+}
+
+#[steel_derive::function(name = "reader-read-one")]
+pub fn read_one(port: &SteelPort) -> Result<SteelVal> {
+    read_datum(port, TryFromExprKindForSteelVal::try_from_expr_kind_quoted)
+}
+
+#[steel_derive::function(name = "reader-read-one-syntax-object")]
+pub fn read_one_syntax_object(port: &SteelPort) -> Result<SteelVal> {
+    read_datum(
+        port,
+        crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind,
+    )
+}
+
 #[steel_derive::context(name = "#%intern", arity = Exact(1), args(Any), raises = Never)]
 pub fn intern_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut guard = ctx.thread.compiler.write();
@@ -2570,14 +2699,8 @@ fn reader_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("#%private/steel/reader");
 
     module
-        .register_fn("new-reader", Reader::create_reader)
-        .register_fn("reader-push-string", Reader::push_string)
-        .register_fn("reader-read-one", Reader::read_one)
-        .register_fn("reader-empty?", Reader::is_empty)
-        .register_fn(
-            "reader-read-one-syntax-object",
-            Reader::read_one_syntax_object,
-        )
+        .register_native_fn_definition(READ_ONE_DEFINITION)
+        .register_native_fn_definition(READ_ONE_SYNTAX_OBJECT_DEFINITION)
         .register_native_fn_definition(INTERN_SYMBOL_DEFINITION);
 
     module
@@ -3670,4 +3793,429 @@ fn _lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
     // }
 
     todo!()
+}
+
+#[cfg(test)]
+mod read_datum_tests {
+    use super::*;
+    use crate::gc::Gc;
+    use crate::primitives::ports::would_block_objectp;
+    use crate::values::port::Peekable;
+    use std::io::{BufReader, Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::time::{Duration, Instant};
+
+    struct Chunks {
+        chunks: Vec<&'static [u8]>,
+        next: usize,
+        then_block: bool,
+    }
+
+    impl Read for Chunks {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            match self.chunks.get(self.next) {
+                Some(chunk) => {
+                    buf[..chunk.len()].copy_from_slice(chunk);
+                    self.next += 1;
+                    Ok(chunk.len())
+                }
+                None if self.then_block => panic!("read again after the datum was complete"),
+                None => Ok(0),
+            }
+        }
+    }
+
+    struct Trickle {
+        bytes: Vec<u8>,
+        at: usize,
+        chunk: usize,
+        stall: bool,
+        stalling: bool,
+    }
+
+    impl Read for Trickle {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.stalling {
+                self.stalling = false;
+
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "nothing ready",
+                ));
+            }
+
+            self.stalling = self.stall;
+
+            let len = usize::min(
+                usize::min(self.chunk, buf.len()),
+                self.bytes.len() - self.at,
+            );
+            buf[..len].copy_from_slice(&self.bytes[self.at..self.at + len]);
+            self.at += len;
+
+            Ok(len)
+        }
+    }
+
+    struct Blocks;
+
+    impl Read for Blocks {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "nothing ready",
+            ))
+        }
+    }
+
+    fn port_over(source: impl Read + Send + Sync + 'static) -> SteelPort {
+        SteelPort {
+            port: Gc::new_lock(SteelPortRepr::DynReader(Peekable::new(BufReader::new(
+                Box::new(source) as Box<dyn Read + Send + Sync>,
+            )))),
+        }
+    }
+
+    fn stream(chunks: &[&'static str], then_block: bool) -> SteelPort {
+        byte_stream(
+            &chunks
+                .iter()
+                .map(|chunk| chunk.as_bytes())
+                .collect::<Vec<_>>(),
+            then_block,
+        )
+    }
+
+    fn byte_stream(chunks: &[&'static [u8]], then_block: bool) -> SteelPort {
+        port_over(Chunks {
+            chunks: chunks.to_vec(),
+            next: 0,
+            then_block,
+        })
+    }
+
+    fn trickle(source: &str, chunk: usize, stall: bool) -> SteelPort {
+        port_over(Trickle {
+            bytes: source.as_bytes().to_vec(),
+            at: 0,
+            chunk,
+            stall,
+            stalling: false,
+        })
+    }
+
+    fn datums(port: &SteelPort) -> Vec<SteelVal> {
+        let mut out = Vec::new();
+
+        loop {
+            let value = read_until_ready(port).0;
+
+            if crate::primitives::ports::eof_objectp(&value) {
+                return out;
+            }
+
+            out.push(value);
+        }
+    }
+
+    fn read_until_ready(port: &SteelPort) -> (SteelVal, usize) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut retries = 0;
+
+        loop {
+            let value = read_one(port).unwrap();
+
+            if !would_block_objectp(&value) {
+                return (value, retries);
+            }
+
+            assert!(Instant::now() < deadline);
+
+            retries += 1;
+        }
+    }
+
+    fn wait_for<T>(mut attempt: impl FnMut() -> Option<T>) -> T {
+        let deadline = Instant::now() + Duration::from_secs(10);
+
+        loop {
+            if let Some(value) = attempt() {
+                return value;
+            }
+
+            assert!(Instant::now() < deadline);
+
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    fn is_suspended(port: &SteelPort) -> bool {
+        let kept = port.port.write().take_parse_state();
+        let there = kept.is_some();
+
+        port.port.write().save_parse_state(kept);
+
+        there
+    }
+
+    fn whole(input: &str) -> SteelVal {
+        read_one(&SteelPort::new_input_port_string(input.to_string())).unwrap()
+    }
+
+    #[test]
+    fn complete_list_does_not_wait() {
+        let port = stream(&["(a b)"], true);
+        assert_eq!(read_one(&port).unwrap(), whole("(a b)"));
+    }
+
+    #[test]
+    fn closed_string_does_not_wait() {
+        let port = stream(&["\"hi\""], true);
+        assert_eq!(read_one(&port).unwrap(), whole("\"hi\""));
+    }
+
+    #[test]
+    fn number_spans_a_read_boundary() {
+        let port = stream(&["4", "2", " "], true);
+        assert_eq!(read_one(&port).unwrap(), whole("42"));
+    }
+
+    #[test]
+    fn number_finishes_at_eof() {
+        let port = stream(&["4", "2"], false);
+        assert_eq!(read_one(&port).unwrap(), whole("42"));
+    }
+
+    #[test]
+    fn unquote_splicing_split_across_reads() {
+        let port = stream(&["(a ,", "@b)"], true);
+        assert_eq!(read_one(&port).unwrap(), whole("(a ,@b)"));
+    }
+
+    #[test]
+    fn identifier_split_across_reads() {
+        let port = stream(&["(vec", "tor 1)"], true);
+        assert_eq!(read_one(&port).unwrap(), whole("(vector 1)"));
+    }
+
+    #[test]
+    fn quoted_datum_split_across_reads() {
+        let port = stream(&["'(1 ", "2 3)"], true);
+        assert_eq!(read_one(&port).unwrap(), whole("'(1 2 3)"));
+    }
+
+    #[test]
+    fn leftover_stays_on_the_port() {
+        let port = stream(&["(a) (b)"], true);
+        assert_eq!(read_one(&port).unwrap(), whole("(a)"));
+        assert_eq!(read_one(&port).unwrap(), whole("(b)"));
+    }
+
+    #[test]
+    fn unterminated_datum_at_eof() {
+        let port = stream(&["(a ", "b"], false);
+        assert!(read_one(&port).is_err());
+    }
+
+    #[test]
+    fn blocked_source_does_not_wait() {
+        let port = port_over(Blocks);
+
+        assert!(would_block_objectp(&read_one(&port).unwrap()));
+    }
+
+    #[test]
+    fn sequence_cut_short_waits_for_the_rest() {
+        let port = byte_stream(&[b"\xe5", b"\x8d", b"\x83", b" "], false);
+
+        assert_eq!(datums(&port), vec![SteelVal::SymbolV("\u{5343}".into())]);
+    }
+
+    #[test]
+    fn chunking_does_not_change_the_datums() {
+        static PROGRAMS: &[&str] = &[
+            "1 2 3",
+            "(a b) (c d)",
+            "'(1 2) `(3 ,x ,@y) #'q",
+            "#;(skipped) (kept) #;(also skipped) 42",
+            "\"a string with ) and ( in it\" (after)",
+            "#\\a #\\space (c)",
+            "#u8(1 2 3) #(4 5)",
+            "(nested (deeply (enough))) tail",
+            "; a comment\n(after the comment)",
+            "#| a block comment |# 7",
+            "1/2 2.5 1+2i 10000000000000000000000",
+            "(a\u{e9}b \"\u{1f600}\") end",
+            "#!/usr/bin/env steel\n(shebang) 2",
+        ];
+
+        for program in PROGRAMS {
+            let expected = datums(&SteelPort::new_input_port_string(program.to_string()));
+
+            assert!(!expected.is_empty());
+
+            for chunk in 1..=8 {
+                for stall in [false, true] {
+                    assert_eq!(datums(&trickle(program, chunk, stall)), expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn character_split_across_reads() {
+        let port = byte_stream(&[b"(a \xc3", b"\xa9)"], true);
+
+        assert_eq!(read_one(&port).unwrap(), whole("(a \u{e9})"));
+    }
+
+    #[test]
+    fn cut_sequence_joins_the_token_in_front_of_it() {
+        let port = SteelPort::new_input_port_bytevector(vec![b'4', b'2', 0xC3]);
+
+        assert_eq!(datums(&port), vec![whole("42\u{fffd}")]);
+    }
+
+    #[test]
+    fn malformed_bytes_join_the_token_in_front_of_them() {
+        let port = SteelPort::new_input_port_bytevector(vec![b'4', b'2', 0xFF]);
+
+        assert_eq!(datums(&port), vec![whole("42\u{fffd}")]);
+    }
+
+    #[test]
+    fn malformed_bytes_are_not_the_end_of_the_source() {
+        for bytes in [vec![0xC3], vec![0xFF]] {
+            let port = SteelPort::new_input_port_bytevector(bytes.clone());
+
+            assert_eq!(datums(&port), vec![whole("\u{fffd}")]);
+        }
+    }
+
+    #[test]
+    fn stalling_source_still_reads() {
+        let port = trickle("(a b c)", 3, true);
+
+        let (value, retries) = read_until_ready(&port);
+
+        assert_eq!(value, whole("(a b c)"));
+        assert!(retries > 0);
+    }
+
+    #[test]
+    fn block_keeps_the_parsers_place() {
+        let port = trickle("(a b c)", 4, true);
+
+        assert!(would_block_objectp(&read_one(&port).unwrap()));
+        assert!(is_suspended(&port));
+        assert_eq!(read_until_ready(&port).0, whole("(a b c)"));
+    }
+
+    #[test]
+    fn read_char_drops_the_parsers_place() {
+        let port = trickle("(a b c)", 4, true);
+
+        assert!(would_block_objectp(&read_one(&port).unwrap()));
+        assert_eq!(
+            port.read_char().unwrap(),
+            MaybeBlocking::Nonblocking(Some('('))
+        );
+        assert!(!is_suspended(&port));
+    }
+
+    #[test]
+    fn read_line_drops_the_parsers_place() {
+        let port = trickle("(a b\nc)", 4, true);
+
+        assert!(would_block_objectp(&read_one(&port).unwrap()));
+        assert!(is_suspended(&port));
+
+        let line = wait_for(|| match port.read_line().unwrap() {
+            MaybeBlocking::Nonblocking((_, line)) => Some(line),
+            MaybeBlocking::WouldBlock => None,
+        });
+
+        assert_eq!(line, "(a b\n");
+        assert!(!is_suspended(&port));
+        assert_eq!(read_until_ready(&port).0, whole("c"));
+    }
+
+    #[test]
+    fn read_all_drops_the_parsers_place() {
+        let port = trickle("(a b c)", 4, true);
+
+        assert!(would_block_objectp(&read_one(&port).unwrap()));
+        assert!(is_suspended(&port));
+
+        let rest = wait_for(|| match port.read_all_str().unwrap() {
+            MaybeBlocking::Nonblocking((_, text)) => Some(text),
+            MaybeBlocking::WouldBlock => None,
+        });
+
+        assert_eq!(rest, "(a b c)");
+        assert!(!is_suspended(&port));
+    }
+
+    #[test]
+    fn socket_keeps_the_parsers_place() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+
+        server.set_nonblocking(true).unwrap();
+
+        let port = SteelPort {
+            port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::with_deadline(server))),
+        };
+
+        client.write_all(b"(a b").unwrap();
+
+        wait_for(|| {
+            assert!(would_block_objectp(&read_one(&port).unwrap()));
+
+            (!port.port.read().pending().is_empty()).then_some(())
+        });
+
+        assert!(is_suspended(&port));
+
+        client.write_all(b" c)").unwrap();
+
+        assert_eq!(read_until_ready(&port).0, whole("(a b c)"));
+    }
+
+    #[test]
+    fn malformed_bytes_inside_a_list_substitute() {
+        let port = SteelPort::new_input_port_bytevector(vec![b'(', 0xFF, b')']);
+
+        assert_eq!(datums(&port), vec![whole("(\u{fffd})")]);
+    }
+
+    #[test]
+    fn datum_before_malformed_bytes() {
+        let port = SteelPort::new_input_port_bytevector(vec![b'(', b'a', b')', b' ', 0xFF]);
+
+        assert_eq!(datums(&port), vec![whole("(a)"), whole("\u{fffd}")]);
+    }
+
+    #[test]
+    fn error_leaves_the_rest() {
+        let port = SteelPort::new_input_port_string(") (a)".to_string());
+
+        assert!(read_one(&port).is_err());
+        assert_eq!(read_one(&port).unwrap(), whole("(a)"));
+    }
+
+    #[test]
+    fn datum_comment_is_skipped() {
+        let port = SteelPort::new_input_port_string("#;(a) (b)".to_string());
+
+        assert_eq!(read_one(&port).unwrap(), whole("(b)"));
+    }
+
+    #[test]
+    fn datum_comment_split_across_reads() {
+        let port = stream(&["#;(a", ") (b", ")"], true);
+
+        assert_eq!(read_one(&port).unwrap(), whole("(b)"));
+    }
 }

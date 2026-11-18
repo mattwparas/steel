@@ -3,6 +3,7 @@ use crate::interner::InternedString;
 use crate::tokens::{IntLiteral, Token, TokenLike, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
 use alloc::borrow::Cow;
+use alloc::string::{String, ToString};
 use core::char;
 use core::iter::Iterator;
 use core::ops::Range;
@@ -29,6 +30,33 @@ pub trait ToOwnedString<T> {
 
 pub type Span = core::ops::Range<usize>;
 
+#[derive(Debug, Clone)]
+pub(crate) struct LexerState {
+    at: u32,
+    token_start: u32,
+    queued: Option<TokenType<InternedString>>,
+    error: Range<u32>,
+    ident_buffer: String,
+}
+
+impl LexerState {
+    pub(crate) fn token_start(&self) -> u32 {
+        self.token_start
+    }
+
+    pub(crate) fn at(&self) -> u32 {
+        self.at
+    }
+
+    pub(crate) fn rewind_to(&mut self, at: u32) {
+        self.at = at;
+        self.token_start = at;
+        self.queued = None;
+        self.error = Default::default();
+        self.ident_buffer.clear();
+    }
+}
+
 pub struct Lexer<'a> {
     /// The source of the lexer.
     source: &'a str,
@@ -53,6 +81,28 @@ impl<'a> Lexer<'a> {
             token_end: 0,
             error: Default::default(),
             ident_buffer: String::new(),
+        }
+    }
+
+    pub(crate) fn state(&self) -> LexerState {
+        LexerState {
+            at: self.token_end,
+            token_start: self.token_start,
+            queued: self.queued.clone(),
+            error: self.error.clone(),
+            ident_buffer: self.ident_buffer.clone(),
+        }
+    }
+
+    pub(crate) fn resume(source: &'a str, state: LexerState) -> Self {
+        Self {
+            chars: source[state.at as usize..].chars().peekable(),
+            source,
+            queued: state.queued,
+            token_start: state.token_start,
+            token_end: state.at,
+            error: state.error,
+            ident_buffer: state.ident_buffer,
         }
     }
 
@@ -624,6 +674,31 @@ impl<'a> TokenStream<'a> {
         res
     }
 
+    pub(crate) fn new_mid_source(
+        input: &'a str,
+        skip_comments: bool,
+        source_id: Option<SourceId>,
+    ) -> Self {
+        Self {
+            lexer: Lexer::new(input),
+            skip_comments,
+            source_id,
+        }
+    }
+
+    pub(crate) fn resume(
+        input: &'a str,
+        skip_comments: bool,
+        source_id: Option<SourceId>,
+        state: LexerState,
+    ) -> Self {
+        Self {
+            lexer: Lexer::resume(input, state),
+            skip_comments,
+            source_id,
+        }
+    }
+
     pub fn into_owned(self) -> OwnedTokenStream<'a> {
         OwnedTokenStream { stream: self }
     }
@@ -644,6 +719,19 @@ impl<'a> Iterator for OwnedTokenStream<'a> {
 impl<'a> OwnedTokenStream<'a> {
     pub fn offset(&self) -> usize {
         self.stream.lexer.span().end
+    }
+
+    pub(crate) fn state(&self) -> LexerState {
+        self.stream.lexer.state()
+    }
+
+    pub(crate) fn resume(
+        input: &'a str,
+        skip_comments: bool,
+        source_id: Option<SourceId>,
+        state: LexerState,
+    ) -> Self {
+        TokenStream::resume(input, skip_comments, source_id, state).into_owned()
     }
 }
 impl<'a> Iterator for TokenStream<'a> {
@@ -1039,6 +1127,81 @@ mod lexer_tests {
 
     fn token_stream(source: &str) -> impl Iterator<Item = Token<'_, InternedString>> {
         TokenStream::new(source, true, None).map(|t| t.expect("unexpected parsing error"))
+    }
+
+    #[test]
+    fn test_resume_continues() {
+        let source = "(define (f x) (+ x 1))";
+
+        let mut first = TokenStream::new(source, true, None);
+        let taken: Vec<_> = (&mut first).take(3).map(|t| t.unwrap().ty).collect();
+        let state = first.lexer.state();
+
+        let rest: Vec<_> = TokenStream::resume(source, true, None, state)
+            .map(|t| t.unwrap().ty)
+            .collect();
+
+        let whole: Vec<_> = token_stream(source).map(|t| t.ty).collect();
+
+        assert_eq!([taken, rest].concat(), whole);
+    }
+
+    #[test]
+    fn test_resume_sees_appended_input() {
+        let prefix = "(a b";
+
+        let mut first = TokenStream::new(prefix, true, None);
+        let taken: Vec<_> = (&mut first).map(|t| t.unwrap().ty).collect();
+        let state = first.lexer.state();
+
+        let whole = "(a b c)";
+        let rest: Vec<_> = TokenStream::resume(whole, true, None, state)
+            .map(|t| t.unwrap().ty)
+            .collect();
+
+        assert_eq!(
+            [taken, rest].concat(),
+            token_stream(whole).map(|t| t.ty).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_rewind_relexes_token() {
+        let source = "abc def";
+
+        let mut stream = TokenStream::new(source, true, None);
+        let first = stream.next().unwrap().unwrap();
+        assert_eq!(first.ty, identifier("abc"));
+
+        let mut state = stream.lexer.state();
+        state.rewind_to(first.span.start);
+
+        let again: Vec<_> = TokenStream::resume(source, true, None, state)
+            .map(|t| t.unwrap().ty)
+            .collect();
+
+        assert_eq!(again, vec![identifier("abc"), identifier("def")]);
+    }
+
+    #[test]
+    fn test_shebang_only_at_start() {
+        let source = "#!/usr/bin/steel\n(a)";
+
+        let from_start: Vec<_> = token_stream(source).map(|t| t.ty).collect();
+        assert_eq!(
+            from_start,
+            vec![
+                OpenParen(Paren::Round, None),
+                identifier("a"),
+                CloseParen(Paren::Round)
+            ]
+        );
+
+        let mid: Vec<_> = TokenStream::new_mid_source(source, true, None)
+            .map(|t| t.unwrap().ty)
+            .collect();
+
+        assert!(mid.len() > from_start.len());
     }
 
     // TODO: Figure out why this just cause an infinite loop when parsing it?
