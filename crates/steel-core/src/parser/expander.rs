@@ -159,6 +159,7 @@ pub struct SteelMacro {
     mangled: bool,
     pub(crate) location: Span,
     pub(crate) special_mangled: bool,
+    definition_resolved: bool,
 }
 
 impl SteelMacro {
@@ -176,6 +177,7 @@ impl SteelMacro {
             mangled: false,
             location,
             special_mangled: false,
+            definition_resolved: false,
         }
     }
 
@@ -201,6 +203,10 @@ impl SteelMacro {
 
     pub fn is_mangled(&self) -> bool {
         self.mangled
+    }
+
+    pub fn mark_definition_resolved(&mut self) {
+        self.definition_resolved = true;
     }
 
     pub fn parse_from_ast_macro(mut ast_macro: Box<Macro>) -> Result<Self> {
@@ -242,6 +248,7 @@ impl SteelMacro {
             mangled: false,
             location: ast_macro.location.span,
             special_mangled: false,
+            definition_resolved: false,
         })
     }
 
@@ -265,6 +272,16 @@ impl SteelMacro {
             //     println!("{:?}", case.args);
             //     println!("{}", expr);
             // }
+
+            let written = a.ident().and_then(|x| {
+                crate::parser::expand_visitor::template_macro_written_name(x.resolve())
+            });
+
+            if let Some(written) = written {
+                let mut expr = expr.clone();
+                expr.args[0] = ExprKind::ident(written);
+                stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
+            }
 
             stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
         } else {
@@ -299,7 +316,8 @@ impl SteelMacro {
         globals: GlobalMap,
     ) -> Result<ExprKind> {
         let case_to_expand = self.match_case(&expr, in_scope, globals)?;
-        let expanded_expr = case_to_expand.expand(expr, span, in_scope, globals)?;
+        let expanded_expr =
+            case_to_expand.expand(expr, span, in_scope, globals, self.definition_resolved)?;
 
         Ok(expanded_expr)
     }
@@ -468,6 +486,7 @@ impl MacroCase {
         span: Span,
         in_scope: &ScopeSet<InternedString, FxBuildHasher>,
         globals: GlobalMap,
+        definition_resolved: bool,
     ) -> Result<ExprKind> {
         thread_local! {
             static BINDINGS: RefCell<FxHashMap<InternedString, ExprKind>> = RefCell::new(FxHashMap::default());
@@ -522,7 +541,13 @@ impl MacroCase {
                         }
                     }
 
-                    MarkTemplateIdentifiers(ExpansionMark::fresh()).visit(&mut body);
+                    let mark = if definition_resolved {
+                        ExpansionMark::fresh_definition_resolved()
+                    } else {
+                        ExpansionMark::fresh()
+                    };
+
+                    MarkTemplateIdentifiers(mark).visit(&mut body);
 
                     // println!("Expanding: {}", body);
                     // println!("Bindings");
@@ -1218,7 +1243,16 @@ fn collect_bindings(
 ) -> Result<()> {
     let mut expr_iter = list.iter().enumerate();
 
-    let expected_many_captures = list.len() + 1 - patterns.len();
+    let fixed_patterns = match patterns.last() {
+        Some(MacroPattern::Rest(_)) => patterns.len() - 1,
+        _ => patterns.len(),
+    };
+    let proper_len = if improper {
+        list.len().saturating_sub(1)
+    } else {
+        list.len()
+    };
+    let expected_many_captures = (proper_len + 1).saturating_sub(fixed_patterns);
 
     for pattern in patterns {
         match pattern {
@@ -1902,6 +1936,7 @@ mod macro_case_expand_test {
                 Span::new(0, 0, SourceId::none()),
                 &ScopeSet::default(),
                 GlobalMap::Map(&Default::default()),
+                false,
             )
             .unwrap();
 

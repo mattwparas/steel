@@ -172,17 +172,35 @@
 
 (#%define-syntax (struct expr)
                  (define unwrapped (syntax-e expr))
-                 (define struct-name (syntax->datum (second unwrapped)))
-                 (define fields (syntax->datum (third unwrapped)))
+                 (define (written-name name)
+                   (if (and (symbol? name)
+                            (starts-with? (symbol->string name) "##")
+                            (not (starts-with? (symbol->string name) "##gensym")))
+                       (string->symbol (substring (symbol->string name) 2))
+                       name))
+                 (define prefixed-name (syntax->datum (second unwrapped)))
+                 (define struct-name (written-name prefixed-name))
+                 (define fields
+                   (let ([fields (syntax->datum (third unwrapped))])
+                     (if (list? fields)
+                         (map written-name fields)
+                         fields)))
                  (define options
                    (let ([raw (cdddr unwrapped)])
                      ; (displayln raw)
                      (if (empty? raw)
                          raw
                          (map syntax->datum raw))))
-                 (define result (struct-impl struct-name fields options))
-                 (syntax/loc result
-                   (syntax-span expr)))
+                 (define result
+                   (let ([result (struct-impl struct-name fields options)])
+                     (if (equal? prefixed-name struct-name)
+                         result
+                         `(begin
+                            ,result
+                            (define ,prefixed-name ,struct-name)))))
+                 (#%syntax/with-mark-of (syntax/loc result
+                                          (syntax-span expr))
+                                        (second unwrapped)))
 
 ;; Macro for creating a new struct, in the form of:
 ;; `(struct <struct-name> (fields ...) options ...)`
@@ -362,24 +380,6 @@
 (define (gensym)
   (set! *gensym-counter* (+ 1 *gensym-counter*))
   (string->symbol (string-append "##gensym" (to-string *gensym-counter*))))
-
-;; TODO: @Matt -> for whatever reason, using ~> plus (lambda (x) ...) generates a stack overflow... look into that
-(define (make-unreadable symbol)
-  (~>> symbol (symbol->string) (string-append "##") (string->symbol)))
-
-(#%define-syntax (define-values expr)
-                 ; (displayln expr)
-                 (define underlying (syntax-e expr))
-                 (define bindings (syntax->datum (second underlying)))
-                 (define expression (third underlying))
-                 (define unreadable-list-name
-                   (make-unreadable '#%proto-define-values-binding-gensym__))
-                 `(begin
-                    (define ,unreadable-list-name ,expression)
-                    ,@(map (lambda (binding-index-pair)
-                             `(define ,(car binding-index-pair)
-                                (list-ref ,unreadable-list-name ,(list-ref binding-index-pair 1))))
-                           (enumerate 0 '() bindings))))
 
 (#%define-syntax (#%better-lambda expr) (quasisyntax (list 10 20 30)))
 
@@ -569,6 +569,21 @@
                                 (%proto-hash-insert% ,(string->symbol env) (quote ,name) ,func)))
                    (register-macro-transformer! name env)))
  'void)
+
+(let ([transformer (parse-def-syntax '(define-syntax (define-values stx)
+                                        (syntax-case stx ()
+                                          [(_ (name ...) expr)
+                                           (let ([names (syntax-e #'(name ...))]
+                                                 [packed (gensym)])
+                                             #`(begin
+                                                 (define #,packed expr)
+                                                 #,@(map (lambda (id index)
+                                                           #`(define #,id
+                                                               (#%prim.list-ref #,packed #,index)))
+                                                         names
+                                                         (range 0 (length names)))))])))])
+  (eval `(define define-values ,transformer))
+  (register-macro-transformer! 'define-values "default"))
 
 (require-builtin #%private/steel/reader as reader.)
 

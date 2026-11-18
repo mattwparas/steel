@@ -15,7 +15,10 @@ use crate::{
         expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change, GlobalMap},
         interner::InternedString,
         kernel::Kernel,
-        parser::{lower_entire_ast, lower_macro_and_require_definitions, SourcesCollector},
+        parser::{
+            lower_entire_ast, lower_expanded_ast, lower_macro_and_require_definitions,
+            SourcesCollector,
+        },
     },
     rvals::{AsRefSteelVal, SteelString},
     steel_vm::{cache::MemoizationTable, engine::ModuleContainer, primitives::constant_primitives},
@@ -957,6 +960,7 @@ impl Compiler {
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
+            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
             lower_entire_ast(expr)?;
 
             for (module, shadowed_vars) in &self.lifted_macro_environments {
@@ -1002,9 +1006,10 @@ impl Compiler {
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
+            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
 
             // for expr in expanded_statements.iter_mut() {
-            lower_entire_ast(expr)?;
+            lower_expanded_ast(expr)?;
 
             ResolveExpansionMarks::resolve(expr);
         }
@@ -1150,6 +1155,7 @@ impl Compiler {
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
+            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
             lower_entire_ast(expr)?;
 
             for (module, shadowed_vars) in &self.lifted_macro_environments {
@@ -1197,9 +1203,10 @@ impl Compiler {
                 &self.macro_env,
                 GlobalMap::Map(self.symbol_map.map()),
             )?;
+            crate::parser::expand_visitor::define_generated_macros(expr, &mut self.macro_env)?;
 
             // for expr in expanded_statements.iter_mut() {
-            lower_entire_ast(expr)?;
+            lower_expanded_ast(expr)?;
 
             ResolveExpansionMarks::resolve(expr);
         }

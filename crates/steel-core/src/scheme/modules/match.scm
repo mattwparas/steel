@@ -389,37 +389,63 @@
 
   (define (go-match pattern input final-body-expr introduced-identifiers)
     (define compile-pattern (compile-cons-to-list pattern 0))
-    (match-p-syntax compile-pattern input final-body-expr 0 (hashset) #f 0 introduced-identifiers)))
+    (match-p-syntax compile-pattern input final-body-expr 0 (hashset) #f 0 introduced-identifiers))
 
-(defmacro (single-match-define expression)
-          (define unwrapped (syntax-e expression))
-          (define variable (syntax->datum (second unwrapped)))
-          (define pattern (syntax->datum (third unwrapped)))
-          (define body (list-ref unwrapped 3))
-          (define introduced-identifiers (mutable-vector))
-          (define res (go-match pattern variable body introduced-identifiers))
-          ;; I _think_ this drains the values from the vector into the list?
-          (define list-identifiers (reverse (mutable-vector->list introduced-identifiers)))
-          (define temp (gensym))
-          (define final-expr
-            `(define-values (,@list-identifiers)
-               (let ([,temp ,(go-match pattern variable `(list ,@list-identifiers) (mutable-vector))])
-                 (if (not (equal? #f ,temp))
-                     ,temp
-                     (error-with-span (quote ,(syntax-span (third unwrapped)))
-                                      "Unable to match the given expression: "
-                                      ,variable
-                                      "to any of the patterns")))))
-          (syntax/loc final-expr
-            (syntax-span expression)))
+  (define (pattern-identifiers pattern found)
+    (define inner (syntax-e pattern))
+    (cond
+      [(symbol? inner) (cons pattern found)]
+      [(list? inner)
+       (let loop ([items inner]
+                  [found found])
+         (if (null? items)
+             found
+             (loop (cdr items)
+                   (if (syntax? (car items))
+                       (pattern-identifiers (car items) found)
+                       found))))]
+      [else found]))
+
+  (define (written-identifier name identifiers)
+    (cond
+      [(null? identifiers) name]
+      [(equal? (#%syntax->datum (car identifiers)) name) (car identifiers)]
+      [else (written-identifier name (cdr identifiers))])))
+
+;; Defines the pattern variables where the form is written
+(defmacro
+ (single-match-define expression)
+ (define unwrapped (syntax-e expression))
+ (define value (second unwrapped))
+ (define variable (gensym))
+ (define pattern (#%syntax->datum (third unwrapped)))
+ (define body (list-ref unwrapped 3))
+ (define introduced-identifiers (mutable-vector))
+ (define res (go-match pattern variable body introduced-identifiers))
+ ;; I _think_ this drains the values from the vector into the list?
+ (define list-identifiers (reverse (mutable-vector->list introduced-identifiers)))
+ (define temp (gensym))
+ (define written (pattern-identifiers (third unwrapped) '()))
+ (define final-expr
+   `(define-values (,@(map (lambda (name) (written-identifier name written)) list-identifiers))
+      (let ([,variable ,value])
+        (let ([,temp ,(go-match pattern variable `(list ,@list-identifiers) (mutable-vector))])
+          (if (not (equal? #f ,temp))
+              ,temp
+              (error-with-span (quote ,(syntax-span (third unwrapped)))
+                               "Unable to match the given expression: "
+                               ,variable
+                               "to any of the patterns"))))))
+ (syntax/loc final-expr
+   (syntax-span expression)))
 
 ;; Match a single pattern
 (defmacro (single-match expression)
           (define unwrapped (syntax-e expression))
           ;; Unwrapping entirely, not what we want! We want to
           ;; wrap it back up with the span of the original definition!
-          (define variable (syntax->datum (second unwrapped)))
-          (define pattern (syntax->datum (third unwrapped)))
+          (define variable (#%syntax->datum (second unwrapped)))
+          (define pattern (#%syntax->datum (third unwrapped)))
           (define body (list-ref unwrapped 3))
           ;; Keep track of all of the identifiers that this
           ;; expression introduces
@@ -434,8 +460,8 @@
           (define unwrapped (syntax-e expression))
           ;; Unwrapping entirely, not what we want! We want to
           ;; wrap it back up with the span of the original definition!
-          (define variable (syntax->datum (second unwrapped)))
-          (define pattern (syntax->datum (third unwrapped)))
+          (define variable (#%syntax->datum (second unwrapped)))
+          (define pattern (#%syntax->datum (third unwrapped)))
           (define body (list-ref unwrapped 3))
           ;; Keep track of all of the identifiers that this
           ;; expression introduces
@@ -558,8 +584,7 @@
 
 (define-syntax match-define
   (syntax-rules ()
-    [(match-define pattern expr)
-     (let ([evald-expr expr]) (single-match-define evald-expr pattern 'empty-body))]))
+    [(match-define pattern expr) (single-match-define expr pattern 'empty-body)]))
 
 (define-syntax match
   (syntax-rules ()

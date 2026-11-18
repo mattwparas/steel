@@ -2668,8 +2668,18 @@ fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
         .register_fn("syntax->datum", crate::rvals::Syntax::syntax_datum)
+        .register_fn("#%syntax->datum", crate::rvals::Syntax::syntax_datum_raw)
         .register_fn("syntax-loc", crate::rvals::Syntax::syntax_loc)
         .register_fn("syntax/loc", crate::rvals::Syntax::new)
+        .register_fn(
+            "#%syntax/with-mark-of",
+            |syntax: SteelVal, other: SteelVal| match (&syntax, &other) {
+                (SteelVal::SyntaxObject(s), SteelVal::SyntaxObject(o)) => {
+                    crate::rvals::Syntax::clone(s).with_mark_of(o).into()
+                }
+                _ => syntax,
+            },
+        )
         .register_fn("syntax-span", crate::rvals::Syntax::syntax_loc)
         .register_fn("span-file-id", |span: Span| span.source_id.map(|x| x.0))
         .register_native_fn_definition(SYNTAX_RAW_DEFINITION)

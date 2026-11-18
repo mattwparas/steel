@@ -143,6 +143,11 @@ test_harness_success! {
     list_functions,
     local_struct,
     macro_quoted_names,
+    default_arguments_in_order,
+    escaped_ellipses,
+    macro_template_builtins,
+    binding_macros_in_templates,
+    local_macros,
     matcher,
     maxsubseq,
     merge_sort,
@@ -276,6 +281,10 @@ test_harness_success_module! {
 }
 
 test_harness_failure! {
+    define_syntax_ends_a_body,
+    define_syntax_outside_a_body,
+    local_macro_does_not_escape,
+    template_macro_does_not_escape,
     capped_depth_defmacro,
     constant_fold_rest,
     function_used_before_definition,

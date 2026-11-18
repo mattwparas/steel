@@ -22,8 +22,8 @@ use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
 
 pub use steel_parser::parser::{
-    lower_entire_ast, lower_macro_and_require_definitions, lower_syntax_rules, ExpansionMark,
-    FunctionId, ListId, ParseError, Parser, RawSyntaxObject, SourceId, SyntaxObject,
+    lower_entire_ast, lower_expanded_ast, lower_macro_and_require_definitions, lower_syntax_rules,
+    ExpansionMark, FunctionId, ListId, ParseError, Parser, RawSyntaxObject, SourceId, SyntaxObject,
     SyntaxObjectId, SYNTAX_OBJECT_ID,
 };
 

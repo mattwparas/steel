@@ -2,7 +2,6 @@
   (values (take lst pos) (drop lst pos)))
 
 (define (associative-join f zero xs)
-  ; (f x0 x1 ...) = (f (f2 x0 x1) (f2 x2 x3) ...)
   (cond
     [(null? xs) zero]
     [(null? (cdr xs)) (car xs)]
@@ -29,3 +28,16 @@
         [else (cons (car ys) (loop xs (cdr ys)))]))))
 
 (associative-join (merger = <) '() (map list '(1 3 2 3 2 1)))
+
+(define ((pair-with a) b)
+  (list a b))
+(assert! (equal? ((pair-with 1) 2) '(1 2)))
+(define ((two-then-one a b) c)
+  (list a b c))
+(assert! (equal? ((two-then-one 1 2) 3) '(1 2 3)))
+(define ((rest-then-one a . r) b)
+  (list a r b))
+(assert! (equal? ((rest-then-one 1 2 3) 4) '(1 (2 3) 4)))
+(define (((three-deep a) b) c)
+  (list a b c))
+(assert! (equal? (((three-deep 1) 2) 3) '(1 2 3)))
