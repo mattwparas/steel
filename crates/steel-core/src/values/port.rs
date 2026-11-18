@@ -577,7 +577,6 @@ fn read_full<R: Read>(
 pub enum SteelPortRepr {
     FileInput(String, Peekable<BufReader<File>>),
     FileOutput(String, BufWriter<File>),
-    // Reads are buffered, so a write has to seek back over the read ahead first
     FileInputOutput(String, Peekable<BufReader<File>>),
     StdInput(Peekable<Stdin>),
     StdOutput(Stdout),
