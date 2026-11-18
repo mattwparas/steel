@@ -1611,6 +1611,40 @@ impl Engine {
         self.virtual_machine.with_interrupted(interrupted);
     }
 
+    /// Sets the mode of a compiler pass written in Steel, `*` for every pass
+    /// (see compiler/passes/steel_passes.rs)
+    pub(crate) fn set_compiler_pass_mode(
+        &mut self,
+        name: &str,
+        mode: crate::compiler::passes::steel_passes::PassMode,
+    ) {
+        self.virtual_machine
+            .compiler
+            .write()
+            .steel_passes
+            .set_mode(name, mode);
+    }
+
+    /// Whether a Steel pass in `compare` mode that differs from its Rust version
+    /// fails compilation
+    pub(crate) fn set_compiler_pass_compare_fails(&mut self, fails: bool) {
+        self.virtual_machine
+            .compiler
+            .write()
+            .steel_passes
+            .set_compare_fails(fails);
+    }
+
+    /// A module of Steel compiler passes to load, as `name`, into the engine
+    /// passes run in
+    pub(crate) fn add_compiler_pass_module(&mut self, name: &str, source: &str) {
+        self.virtual_machine
+            .compiler
+            .write()
+            .steel_passes
+            .add_module_source(name.to_owned(), source.to_owned());
+    }
+
     pub fn get_thread_state_controller(&self) -> ThreadStateController {
         self.virtual_machine.synchronizer.state.clone()
     }

@@ -353,6 +353,19 @@ steel_config! {
     rewrite_program_builtins: bool = true, "STEEL_REWRITE_PROGRAM_BUILTINS";
     /// Remove the `(let () body)` shells copy propagation leaves.
     flatten_empty_lets: bool = true, "STEEL_FLATTEN_EMPTY_LETS";
+    /// Compiler passes in Steel, phase 0: at each point a Steel pass could run, send the
+    /// program through Steel syntax and back, fail compilation if anything changed (ids,
+    /// spans and flags included), and carry on with the copy.
+    pass_roundtrip: bool = false, "STEEL_PASS_ROUNDTRIP";
+    /// With `STEEL_PASS_ROUNDTRIP`, print what each round trip costs.
+    pass_roundtrip_times: bool = false, "STEEL_PASS_ROUNDTRIP_TIMES";
+    /// Modes of compiler passes written in Steel, `name=mode,...` with modes off, steel,
+    /// compare and rust; `*` names every pass. See compiler/passes/steel_passes.rs.
+    passes: Option<String> = None, "STEEL_PASSES";
+    /// More modules of Steel compiler passes to load, comma separated paths.
+    pass_modules: Option<String> = None, "STEEL_PASS_MODULES";
+    /// A Steel pass in `compare` mode that differs from its Rust version fails compilation.
+    pass_compare_fail: bool = false, "STEEL_PASS_COMPARE_FAIL";
     /// Bind `(car x)` before a recursive call passing `(cdr x)`.
     hoist_car: bool = true, "STEEL_HOIST_CAR";
     /// Evaluate a `set-box!`'s value before reading the box when the value

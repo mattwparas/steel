@@ -154,7 +154,8 @@ declare_builtins!(
     "steel/require-transform" => "../scheme/modules/require-transform.scm",
     "steel/provide-transform" => "../scheme/modules/provide-transform.scm",
     "steel/require" => "../scheme/modules/require.scm",
-    "steel/provide" => "../scheme/modules/provide.scm";
+    "steel/provide" => "../scheme/modules/provide.scm",
+    "#%private/steel/passes" => "../scheme/modules/passes.scm";
     "steel/markdown" => source MARKDOWN_MODULE
 );
 

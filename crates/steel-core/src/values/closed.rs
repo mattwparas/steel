@@ -258,7 +258,7 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output {
         self.push_back(iterator.read().root.clone());
     }
-    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
+    fn visit_boxed_value(&mut self, boxed_value: crate::rvals::StrongBox) -> Self::Output {
         self.push_back(boxed_value.read().clone());
     }
 
@@ -1422,7 +1422,7 @@ impl BreadthFirstSearchSteelValVisitor for UnreachedWalk {
         self.push_back(iterator.read().root.clone());
     }
 
-    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
+    fn visit_boxed_value(&mut self, boxed_value: crate::rvals::StrongBox) -> Self::Output {
         self.push_back(boxed_value.read().clone());
     }
 
@@ -5110,7 +5110,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output {
         self.push_back(iterator.read().root.clone());
     }
-    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
+    fn visit_boxed_value(&mut self, boxed_value: crate::rvals::StrongBox) -> Self::Output {
         self.push_back(boxed_value.read().clone());
     }
 
@@ -5353,7 +5353,7 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         self.push_back(&guard.root);
     }
 
-    fn visit_boxed_value(&mut self, boxed_value: &MutContainer<SteelVal>) -> Self::Output {
+    fn visit_boxed_value(&mut self, boxed_value: &crate::values::lock::SpinLock<SteelVal>) -> Self::Output {
         let guard = boxed_value.read();
         self.save(guard.clone());
         self.push_back(&guard);

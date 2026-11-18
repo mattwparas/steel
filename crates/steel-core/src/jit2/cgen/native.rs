@@ -8,6 +8,134 @@ use super::*;
 use crate::values::structs::StructStorage;
 
 // Byte offset from the pointer a HeapRef holds to the boxed value's lock.
+/// The element type of a typed bytevector accessor (`bytevector-u16-ref`
+/// and the like; `u8` is `bytes-ref`'s own path). Elements are in native byte
+/// order, as the primitives read them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ByteElement {
+    S8,
+    U16,
+    S16,
+    U32,
+    S32,
+    U64,
+    S64,
+    F32,
+    F64,
+}
+
+impl ByteElement {
+    // log2 of the width
+    fn shift(self) -> i64 {
+        match self {
+            ByteElement::S8 => 0,
+            ByteElement::U16 | ByteElement::S16 => 1,
+            ByteElement::U32 | ByteElement::S32 | ByteElement::F32 => 2,
+            ByteElement::U64 | ByteElement::S64 | ByteElement::F64 => 3,
+        }
+    }
+
+    pub(super) fn is_float(self) -> bool {
+        matches!(self, ByteElement::F32 | ByteElement::F64)
+    }
+
+    // The element at `slot`, as the payload of the value it reads as: an
+    // integer's bits, or a float's as an f64
+    fn load(self, ctx: &mut FunctionTranslator<'_>, slot: Value) -> Value {
+        let flags = MemFlagsData::trusted();
+        let ins = ctx.builder.ins();
+        match self {
+            ByteElement::S8 => ins.sload8(types::I64, flags, slot, 0),
+            ByteElement::U16 => ins.uload16(types::I64, flags, slot, 0),
+            ByteElement::S16 => ins.sload16(types::I64, flags, slot, 0),
+            ByteElement::U32 => ins.uload32(flags, slot, 0),
+            ByteElement::S32 => ins.sload32(flags, slot, 0),
+            ByteElement::U64 | ByteElement::S64 | ByteElement::F64 => {
+                ins.load(types::I64, flags, slot, 0)
+            }
+            ByteElement::F32 => {
+                let single = ins.load(types::F32, flags, slot, 0);
+                let double = ctx.builder.ins().fpromote(types::F64, single);
+                ctx.builder
+                    .ins()
+                    .bitcast(types::I64, MemFlagsData::new(), double)
+            }
+        }
+    }
+
+    // Stores a value's payload `bits` into the element at `slot`
+    fn store(self, ctx: &mut FunctionTranslator<'_>, bits: Value, slot: Value) {
+        let flags = MemFlagsData::trusted();
+        match self {
+            ByteElement::S8 => {
+                ctx.builder.ins().istore8(flags, bits, slot, 0);
+            }
+            ByteElement::U16 | ByteElement::S16 => {
+                ctx.builder.ins().istore16(flags, bits, slot, 0);
+            }
+            ByteElement::U32 | ByteElement::S32 => {
+                ctx.builder.ins().istore32(flags, bits, slot, 0);
+            }
+            ByteElement::U64 | ByteElement::S64 | ByteElement::F64 => {
+                ctx.builder.ins().store(flags, bits, slot, 0);
+            }
+            ByteElement::F32 => {
+                let double = ctx
+                    .builder
+                    .ins()
+                    .bitcast(types::F64, MemFlagsData::new(), bits);
+                let single = ctx.builder.ins().fdemote(types::F32, double);
+                ctx.builder.ins().store(flags, single, slot, 0);
+            }
+        }
+    }
+
+    // Whether an integer (or float) value fits the element, as the
+    // primitive's argument conversion decides. Negatives are huge unsigned
+    // numbers, so one unsigned comparison checks an unsigned element.
+    fn in_range(self, ctx: &mut FunctionTranslator<'_>, bits: Value) -> Value {
+        let signed = |ctx: &mut FunctionTranslator<'_>, min: i64, max: i64| {
+            let above = ctx
+                .builder
+                .ins()
+                .icmp_imm_s(IntCC::SignedGreaterThanOrEqual, bits, min);
+            let below = ctx
+                .builder
+                .ins()
+                .icmp_imm_s(IntCC::SignedLessThanOrEqual, bits, max);
+            ctx.builder.ins().band(above, below)
+        };
+        match self {
+            ByteElement::S8 => signed(ctx, i8::MIN as i64, i8::MAX as i64),
+            ByteElement::S16 => signed(ctx, i16::MIN as i64, i16::MAX as i64),
+            ByteElement::S32 => signed(ctx, i32::MIN as i64, i32::MAX as i64),
+            ByteElement::U16 => ctx
+                .builder
+                .ins()
+                .icmp_imm_u(IntCC::UnsignedLessThanOrEqual, bits, u16::MAX as i64),
+            ByteElement::U32 => ctx
+                .builder
+                .ins()
+                .icmp_imm_u(IntCC::UnsignedLessThanOrEqual, bits, u32::MAX as i64),
+            ByteElement::U64 => ctx
+                .builder
+                .ins()
+                .icmp_imm_s(IntCC::SignedGreaterThanOrEqual, bits, 0),
+            ByteElement::S64 | ByteElement::F32 | ByteElement::F64 => {
+                let one = ctx.builder.ins().iconst(types::I8, 1);
+                one
+            }
+        }
+    }
+}
+
+// A strong box is `Gc<SpinLock<SteelVal>>`: the lock word, then the value, in
+// the BiasedRc box's data.
+const fn strong_box_lock_offset() -> i64 {
+    (steel_rc::BiasedRc::<SpinLock<SteelVal>>::data_offset()
+        + SpinLock::<SteelVal>::lock_offset()) as i64
+}
+
 const fn heap_box_lock_offset() -> i64 {
     steel_rc::weak::Weak::<SpinLock<HeapAllocated<SteelVal>>>::data_offset() as i64
 }
@@ -2351,6 +2479,126 @@ impl<'a> FunctionTranslator<'a> {
         )
     }
 
+    /// Inline `unbox-strong`: a clone of the value in a strong box.
+    ///
+    /// Alone (see `CELLS_SHARED`), a load and a clone. With other threads
+    /// running, the same under the box's spin lock: a strong box's writer
+    /// drops the old value straight away, so the value can't be read without
+    /// it the way heap boxes are. Anything that isn't a strong box goes to the
+    /// primitive, for its error.
+    pub(super) fn unbox_strong_checked(&mut self, value: Value, owned: bool) -> Value {
+        let is_box = self.is_type(value, SteelVal::BOXED_VALUE_TAG);
+        let typ = self.int;
+
+        self.converging_if(
+            is_box,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(value);
+                let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, strong_box_lock_offset());
+                let is_one = ctx.single_threaded();
+
+                ctx.lock_unless_alone(is_one, lock_pointer);
+                let data = ctx.builder.ins().load(
+                    types::I128,
+                    MemFlagsData::trusted(),
+                    lock_pointer,
+                    SpinLock::<SteelVal>::data_offset() as i32,
+                );
+                ctx.clone_value(data);
+                ctx.unlock_unless_alone(is_one, lock_pointer);
+
+                if owned {
+                    ctx.drop_tagged_value(value);
+                }
+                data
+            },
+            |ctx| {
+                if !owned {
+                    ctx.clone_value(value);
+                }
+                ctx.call_helper_checked(UNBOX_STRONG_HANDLER, [value])
+            },
+            typ,
+        )
+    }
+
+    /// Inline `set-strong-box!`: stores into a strong box and gives void. The
+    /// old value is dropped after the lock is let go.
+    pub(super) fn set_strong_box_checked(
+        &mut self,
+        boxed: Value,
+        new_value: Value,
+        owned: bool,
+    ) -> Value {
+        let is_box = self.is_type(boxed, SteelVal::BOXED_VALUE_TAG);
+        let typ = self.int;
+
+        self.converging_if(
+            is_box,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(boxed);
+                let lock_pointer = ctx.builder.ins().iadd_imm_s(ptr, strong_box_lock_offset());
+                let data_offset = SpinLock::<SteelVal>::data_offset() as i32;
+                let is_one = ctx.single_threaded();
+
+                ctx.lock_unless_alone(is_one, lock_pointer);
+                let old = ctx.builder.ins().load(
+                    types::I128,
+                    MemFlagsData::trusted(),
+                    lock_pointer,
+                    data_offset,
+                );
+                ctx.builder.ins().store(
+                    MemFlagsData::trusted(),
+                    new_value,
+                    lock_pointer,
+                    data_offset,
+                );
+                ctx.unlock_unless_alone(is_one, lock_pointer);
+
+                ctx.drop_tagged_value(old);
+                if owned {
+                    ctx.drop_tagged_value(boxed);
+                }
+                ctx.encode_void()
+            },
+            |ctx| {
+                if !owned {
+                    ctx.clone_value(boxed);
+                }
+                ctx.call_helper_checked(SET_STRONG_BOX_HANDLER, [boxed, new_value])
+            },
+            typ,
+        )
+    }
+
+    // The spin lock at `lock_pointer`, unless this is the only thread
+    fn lock_unless_alone(&mut self, alone: Value, lock_pointer: Value) {
+        let lock = self.builder.create_block();
+        let locked = self.builder.create_block();
+        self.builder.set_cold_block(lock);
+        self.builder.ins().brif(alone, locked, &[], lock, &[]);
+        self.builder.switch_to_block(lock);
+        self.builder.seal_block(lock);
+        emit_spinlock_inline(&mut self.builder, lock_pointer);
+        self.builder.ins().jump(locked, &[]);
+        self.builder.switch_to_block(locked);
+        self.builder.seal_block(locked);
+    }
+
+    fn unlock_unless_alone(&mut self, alone: Value, lock_pointer: Value) {
+        let unlock = self.builder.create_block();
+        let done = self.builder.create_block();
+        self.builder.set_cold_block(unlock);
+        self.builder.ins().brif(alone, done, &[], unlock, &[]);
+        self.builder.switch_to_block(unlock);
+        self.builder.seal_block(unlock);
+        emit_spinlock_unlock_inline(&mut self.builder, lock_pointer);
+        self.builder.ins().jump(done, &[]);
+        self.builder.switch_to_block(done);
+        self.builder.seal_block(done);
+    }
+
     /// Starts a join of several arms that each end in a value. Every arm
     /// starts from what the translator knows now, and only what all of them
     /// agree on is kept once they have joined.
@@ -3006,6 +3254,179 @@ impl<'a> FunctionTranslator<'a> {
                             ctx.builder
                                 .ins()
                                 .istore8(MemFlagsData::trusted(), val, slot, 0);
+                            ctx.i64_const(1)
+                        },
+                        |ctx| ctx.i64_const(0),
+                        types::I64,
+                    )
+                });
+
+                let ok = ctx.builder.ins().icmp_imm_s(IntCC::Equal, stored, 1);
+
+                ctx.converging_if_else_cold(
+                    ok,
+                    |ctx| {
+                        if owned {
+                            ctx.drop_tagged_value(bytevector);
+                        }
+                        ctx.encode_void()
+                    },
+                    |ctx| fallback(ctx),
+                    types::I128,
+                )
+            },
+            |ctx| fallback(ctx),
+            types::I128,
+        )
+    }
+
+    /// `bytevector-s8-ref`, `-u16-ref`, ... `-f64-ref` with no call. As
+    /// `inline_bytes_ref`, for an element of `kind`: the index counts elements,
+    /// so the bound is the length over the width and the address the index
+    /// times it. The locked region gives back whether the read happened, and
+    /// the bits through a variable, since every bit pattern is a value. A `u64`
+    /// past the fixnums is a bignum, which the primitive makes.
+    pub(super) fn inline_typed_bytes_ref(
+        &mut self,
+        kind: ByteElement,
+        bytevector: Value,
+        index: Value,
+        owned: bool,
+        fallback: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let both = self.tags_are(&[
+            (bytevector, SteelVal::BYTEVECTOR_TAG),
+            (index, SteelVal::INT_TAG),
+        ]);
+
+        self.converging_if_else_cold(
+            both,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(bytevector);
+                let idx = ctx.unbox_value_to_pointer(index);
+
+                let bits = ctx.builder.declare_var(types::I64);
+                let zero = ctx.i64_const(0);
+                ctx.builder.def_var(bits, zero);
+
+                let read = ctx.with_byte_vec_lock(ptr, |ctx| {
+                    let len = ctx.builder.ins().load(
+                        types::I64,
+                        MemFlagsData::trusted(),
+                        ptr,
+                        byte_vec_len_offset(),
+                    );
+                    let count = ctx.builder.ins().ushr_imm_u(len, kind.shift());
+                    // Unsigned, so a negative index fails the same comparison
+                    let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, count);
+
+                    ctx.converging_if(
+                        in_bounds,
+                        |ctx| {
+                            let buf = ctx.builder.ins().load(
+                                types::I64,
+                                MemFlagsData::trusted(),
+                                ptr,
+                                byte_vec_buf_offset(),
+                            );
+                            let offset = ctx.builder.ins().ishl_imm_u(idx, kind.shift());
+                            let slot = ctx.builder.ins().iadd(buf, offset);
+                            let value = kind.load(ctx, slot);
+                            ctx.builder.def_var(bits, value);
+                            ctx.i64_const(1)
+                        },
+                        |ctx| ctx.i64_const(0),
+                        types::I64,
+                    )
+                });
+
+                let value = ctx.builder.use_var(bits);
+                let mut ok = ctx.builder.ins().icmp_imm_s(IntCC::Equal, read, 1);
+                if kind == ByteElement::U64 {
+                    let fixnum = ctx
+                        .builder
+                        .ins()
+                        .icmp_imm_s(IntCC::SignedGreaterThanOrEqual, value, 0);
+                    ok = ctx.builder.ins().band(ok, fixnum);
+                }
+
+                ctx.converging_if_else_cold(
+                    ok,
+                    |ctx| {
+                        if owned {
+                            ctx.drop_tagged_value(bytevector);
+                        }
+                        let tag = if kind.is_float() {
+                            discriminant(&SteelVal::NumV(0.0))
+                        } else {
+                            discriminant(&SteelVal::IntV(0))
+                        };
+                        ctx.encode_value(tag as i64, value)
+                    },
+                    |ctx| fallback(ctx),
+                    types::I128,
+                )
+            },
+            |ctx| fallback(ctx),
+            types::I128,
+        )
+    }
+
+    /// `bytevector-s8-set!` ... `-f64-set!` with no call. Integers have to fit
+    /// the element, as the primitive's argument conversion checks; a float
+    /// element takes a float (anything else goes to the primitive, which
+    /// converts it). Returns 1 from the locked region when the store happened.
+    pub(super) fn inline_typed_bytes_set(
+        &mut self,
+        kind: ByteElement,
+        bytevector: Value,
+        index: Value,
+        value: Value,
+        owned: bool,
+        fallback: impl Fn(&mut Self) -> Value,
+    ) -> Value {
+        let value_tag = if kind.is_float() {
+            SteelVal::FLOAT_TAG
+        } else {
+            SteelVal::INT_TAG
+        };
+        let tags_ok = self.tags_are(&[
+            (bytevector, SteelVal::BYTEVECTOR_TAG),
+            (index, SteelVal::INT_TAG),
+            (value, value_tag),
+        ]);
+
+        self.converging_if_else_cold(
+            tags_ok,
+            |ctx| {
+                let ptr = ctx.unbox_value_to_pointer(bytevector);
+                let idx = ctx.unbox_value_to_pointer(index);
+                let bits = ctx.unbox_value_to_pointer(value);
+                let in_range = kind.in_range(ctx, bits);
+
+                let stored = ctx.with_byte_vec_lock(ptr, |ctx| {
+                    let len = ctx.builder.ins().load(
+                        types::I64,
+                        MemFlagsData::trusted(),
+                        ptr,
+                        byte_vec_len_offset(),
+                    );
+                    let count = ctx.builder.ins().ushr_imm_u(len, kind.shift());
+                    let in_bounds = ctx.builder.ins().icmp(IntCC::UnsignedLessThan, idx, count);
+                    let ok = ctx.builder.ins().band(in_bounds, in_range);
+
+                    ctx.converging_if(
+                        ok,
+                        |ctx| {
+                            let buf = ctx.builder.ins().load(
+                                types::I64,
+                                MemFlagsData::trusted(),
+                                ptr,
+                                byte_vec_buf_offset(),
+                            );
+                            let offset = ctx.builder.ins().ishl_imm_u(idx, kind.shift());
+                            let slot = ctx.builder.ins().iadd(buf, offset);
+                            kind.store(ctx, bits, slot);
                             ctx.i64_const(1)
                         },
                         |ctx| ctx.i64_const(0),

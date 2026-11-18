@@ -966,6 +966,10 @@ pub struct Syntax {
     pub(crate) syntax: SteelVal,
     span: Span,
     scopes: steel_parser::scopes::ScopeSetId,
+    // The syntax object id of the AST node this came from, when it came from one.
+    // Compiler passes written in Steel get syntax with ids, so it can go back to the
+    // same nodes (see compiler/passes/syntax_bridge.rs).
+    id: Option<u32>,
 }
 
 impl Syntax {
@@ -975,6 +979,7 @@ impl Syntax {
             syntax,
             span,
             scopes: steel_parser::scopes::ScopeSetId::EMPTY,
+            id: None,
         }
     }
 
@@ -984,6 +989,7 @@ impl Syntax {
             syntax,
             span,
             scopes: steel_parser::scopes::ScopeSetId::EMPTY,
+            id: None,
         }
     }
 
@@ -994,12 +1000,34 @@ impl Syntax {
             syntax,
             span,
             scopes: steel_parser::scopes::ScopeSetId::EMPTY,
+            id: None,
         }
     }
 
     pub(crate) fn with_scopes(mut self, scopes: steel_parser::scopes::ScopeSetId) -> Syntax {
         self.scopes = scopes;
         self
+    }
+
+    pub(crate) fn with_id(mut self, id: u32) -> Syntax {
+        self.id = Some(id);
+        self
+    }
+
+    pub(crate) fn id(&self) -> Option<u32> {
+        self.id
+    }
+
+    // New contents for this syntax, keeping its span, scopes and id, so a compiler pass
+    // that rebuilds a form still has the form it started from
+    pub(crate) fn rebuilt(&self, syntax: SteelVal) -> Syntax {
+        Syntax {
+            raw: None,
+            syntax,
+            span: self.span,
+            scopes: self.scopes.clone(),
+            id: self.id,
+        }
     }
 
     pub(crate) fn scopes(&self) -> steel_parser::scopes::ScopeSetId {
@@ -1016,6 +1044,7 @@ impl Syntax {
             syntax,
             span,
             scopes: steel_parser::scopes::ScopeSetId::EMPTY,
+            id: None,
         }
     }
 
@@ -1327,6 +1356,9 @@ pub enum TypeKind {
     List(Box<TypeKind>),
 }
 
+/// What a strong box (`box-strong`) holds its value in
+pub type StrongBox = Gc<crate::values::lock::SpinLock<SteelVal>>;
+
 /// A value as represented in the runtime.
 #[repr(C, u8)]
 pub enum SteelVal {
@@ -1394,9 +1426,10 @@ pub enum SteelVal {
     BoxedIterator(GcMut<OpaqueIterator>),
     // Contains a syntax object.
     SyntaxObject(Gc<Syntax>),
-    // Mutable storage, with Gc backing
-    // Boxed(HeapRef),
-    Boxed(GcMut<SteelVal>),
+    // A strong box (`box-strong`): reference counted, not traced. Behind the
+    // same spin lock as heap boxes and bytevectors, so the jit can read and
+    // write it inline.
+    Boxed(StrongBox),
     // Holds a SteelVal on the heap.
     HeapAllocated(HeapRef<SteelVal>),
     // TODO: This itself, needs to be boxed unfortunately.
@@ -1493,7 +1526,7 @@ pub(crate) enum SteelValPointer {
     MutableVector(HeapRef<HeapVec>),
     SyntaxObject(*const Syntax),
     BoxedIterator(*const RwLock<OpaqueIterator>),
-    Boxed(*const RwLock<SteelVal>),
+    Boxed(*const crate::values::lock::SpinLock<SteelVal>),
     HeapAllocated(HeapRef<SteelVal>),
 }
 
@@ -2035,7 +2068,7 @@ pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
 
 impl SteelVal {
     pub fn boxed(value: SteelVal) -> SteelVal {
-        SteelVal::Boxed(Gc::new_mut(value))
+        SteelVal::Boxed(Gc::new(crate::values::lock::SpinLock::new(value)))
     }
 
     pub(crate) fn ptr_eq(&self, other: &SteelVal) -> bool {

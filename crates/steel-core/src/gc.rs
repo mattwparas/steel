@@ -119,6 +119,12 @@ pub mod shared {
         }
     }
 
+    impl<T> MutableContainer<T> for crate::values::lock::SpinLock<T> {
+        fn consume(self) -> T {
+            self.into_inner()
+        }
+    }
+
     #[cfg(not(feature = "sync"))]
     pub type ScopedReadContainer<'a, T> = Ref<'a, T>;
     #[cfg(not(feature = "sync"))]

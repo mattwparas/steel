@@ -1,4 +1,4 @@
-use super::native::CharClass;
+use super::native::{ByteElement, CharClass};
 use super::*;
 
 type PushLowering = Box<dyn for<'a> Fn(&mut FunctionTranslator<'a>, usize) + Send + Sync>;
@@ -148,6 +148,24 @@ impl PrimitiveInline {
     }
 }
 
+// A typed bytevector accessor: `arity` 2 reads, 3 writes. The fallback calls
+// the primitive itself.
+fn typed_bytes_entry(
+    name: &'static str,
+    target: FunctionSignature,
+    kind: ByteElement,
+    arity: usize,
+) -> PrimitiveInline {
+    inline(
+        name,
+        target as *const (),
+        returns(move |t, arity| Some(t.inline_typed_byte_vector_op(target, kind, arity))),
+    )
+    .arity(arity)
+    .operand(bytevector)
+    .guard(|t, arity| t.byte_vector_shape_ok(arity))
+}
+
 fn divmod_entry(name: &'static str, target: FunctionSignature, mode: DivMode) -> PrimitiveInline {
     // The fallback calls the primitive itself.
     inline(
@@ -186,6 +204,13 @@ fn bitwise_entry(name: &'static str, target: FunctionSignature, op: BitwiseOp) -
 /// Every primitive with an inline lowering.
 pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
     static TABLE: std::sync::LazyLock<Vec<PrimitiveInline>> = std::sync::LazyLock::new(|| {
+        use crate::primitives::bytevectors::{
+            steel_f32_bytes_ref, steel_f32_bytes_set, steel_f64_bytes_ref, steel_f64_bytes_set,
+            steel_s16_bytes_ref, steel_s16_bytes_set, steel_s32_bytes_ref, steel_s32_bytes_set,
+            steel_s64_bytes_ref, steel_s64_bytes_set, steel_s8_bytes_ref, steel_s8_bytes_set,
+            steel_u16_bytes_ref, steel_u16_bytes_set, steel_u32_bytes_ref, steel_u32_bytes_set,
+            steel_u64_bytes_ref, steel_u64_bytes_set,
+        };
         use crate::primitives::lists::{steel_cdr, steel_reverse};
         use crate::primitives::vectors::{list_vec_null, mut_vec_construct};
         use crate::steel_vm::primitives::{
@@ -528,6 +553,25 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             .arity(3)
             .operand(bytevector)
             .guard(|t, arity| t.byte_vector_shape_ok(arity)),
+            // The typed accessors, `bytevector-s8-ref` to `bytevector-f64-set!`
+            typed_bytes_entry("bytevector-s8-ref", steel_s8_bytes_ref, ByteElement::S8, 2),
+            typed_bytes_entry("bytevector-s8-set!", steel_s8_bytes_set, ByteElement::S8, 3),
+            typed_bytes_entry("bytevector-u16-ref", steel_u16_bytes_ref, ByteElement::U16, 2),
+            typed_bytes_entry("bytevector-u16-set!", steel_u16_bytes_set, ByteElement::U16, 3),
+            typed_bytes_entry("bytevector-s16-ref", steel_s16_bytes_ref, ByteElement::S16, 2),
+            typed_bytes_entry("bytevector-s16-set!", steel_s16_bytes_set, ByteElement::S16, 3),
+            typed_bytes_entry("bytevector-u32-ref", steel_u32_bytes_ref, ByteElement::U32, 2),
+            typed_bytes_entry("bytevector-u32-set!", steel_u32_bytes_set, ByteElement::U32, 3),
+            typed_bytes_entry("bytevector-s32-ref", steel_s32_bytes_ref, ByteElement::S32, 2),
+            typed_bytes_entry("bytevector-s32-set!", steel_s32_bytes_set, ByteElement::S32, 3),
+            typed_bytes_entry("bytevector-u64-ref", steel_u64_bytes_ref, ByteElement::U64, 2),
+            typed_bytes_entry("bytevector-u64-set!", steel_u64_bytes_set, ByteElement::U64, 3),
+            typed_bytes_entry("bytevector-s64-ref", steel_s64_bytes_ref, ByteElement::S64, 2),
+            typed_bytes_entry("bytevector-s64-set!", steel_s64_bytes_set, ByteElement::S64, 3),
+            typed_bytes_entry("bytevector-f32-ref", steel_f32_bytes_ref, ByteElement::F32, 2),
+            typed_bytes_entry("bytevector-f32-set!", steel_f32_bytes_set, ByteElement::F32, 3),
+            typed_bytes_entry("bytevector-f64-ref", steel_f64_bytes_ref, ByteElement::F64, 2),
+            typed_bytes_entry("bytevector-f64-set!", steel_f64_bytes_set, ByteElement::F64, 3),
             // Integer division, in both operand and tail position.
             divmod_entry("quotient", quotient, DivMode::TruncQuotient),
             divmod_entry(
@@ -579,6 +623,46 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             .tail(always)
             .guard(|t, arity| {
                 t.box_primitive_inlinable(steel_set_box_mutable as *const () as usize, arity)
+            }),
+            // Strong boxes, `Gc<SpinLock<SteelVal>>`
+            inline(
+                "unbox-strong",
+                crate::steel_vm::primitives::steel_unbox as *const (),
+                returns(|t, arity| {
+                    t.inline_strong_box_primitive(
+                        crate::steel_vm::primitives::steel_unbox as *const () as usize,
+                        arity,
+                    )
+                }),
+            )
+            .arity(1)
+            .operand(boxes)
+            .tail(always)
+            .guard(|t, arity| {
+                t.strong_box_primitive_inlinable(
+                    crate::steel_vm::primitives::steel_unbox as *const () as usize,
+                    arity,
+                )
+            }),
+            inline(
+                "set-strong-box!",
+                crate::steel_vm::primitives::steel_set_box as *const (),
+                returns(|t, arity| {
+                    t.inline_strong_box_primitive(
+                        crate::steel_vm::primitives::steel_set_box as *const () as usize,
+                        arity,
+                    )
+                }),
+            )
+            .arity(2)
+            .operand(boxes)
+            .tail(always)
+            .result(InferredType::Void)
+            .guard(|t, arity| {
+                t.strong_box_primitive_inlinable(
+                    crate::steel_vm::primitives::steel_set_box as *const () as usize,
+                    arity,
+                )
             }),
             // Structs with their fields inline.
             inline(

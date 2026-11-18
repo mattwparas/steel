@@ -348,10 +348,39 @@
 
   ;; In match-syntax, compound patterns look inside syntax with syntax-e, literals are compared
   ;; with syntax->datum, and variables bind the syntax itself
+  ;; What's inspected before the clauses is in the environment under `(#%e v)`, and the first
+  ;; element of a list `v` under `(#%car v)`, so every clause shares it
   (define (inspect v env make)
     (if (lookup '#%syntax env)
-        (bind-temp (mk-if (list 'syntax? v) (list 'syntax-e v) v) make)
+        (let ([known (lookup (list '#%e v) env)])
+          (if known
+              (make known)
+              (bind-temp (mk-if (list 'syntax? v) (list 'syntax-e v) v) make)))
         (make v)))
+
+  ;; A literal that `equal?` can compare with the top of a syntax object, without the datum of
+  ;; all of it: a list's syntax-e is never one of these
+  (define (atomic-literal? d)
+    (or (symbol? d) (number? d) (string? d) (char? d) (boolean? d)))
+
+  ;; Code comparing `v` with the literal `d`
+  (define (compile-literal d v env k fail)
+    (cond
+      [(and (null? d) (lookup '#%syntax env))
+       ;; The rest of a list from syntax-e is a plain list, but `()` can be syntax
+       (mk-if (mk-if (list '#%prim.null? v)
+                     #t
+                     (mk-if (list 'syntax? v) (list '#%prim.null? (list 'syntax-e v)) #f))
+              (k env)
+              fail)]
+      [(null? d)
+       (inspect-datum v env (lambda (v) (mk-if (list '#%prim.null? v) (k env) fail)))]
+      [(atomic-literal? d)
+       (inspect v env (lambda (v) (mk-if (list '#%prim.equal? v (list 'quote d)) (k env) fail)))]
+      [else
+       (inspect-datum v
+                      env
+                      (lambda (v) (mk-if (list '#%prim.equal? v (list 'quote d)) (k env) fail)))]))
 
   ;; In match-syntax the rest of a list is a plain list of syntax objects
   (define (inspect-datum v env make)
@@ -390,18 +419,9 @@
          [(wildcard? pat) (k env)]
          [(assoc pat env) (mk-if (list '#%prim.equal? v (lookup pat env)) (k env) fail)]
          [else (k (cons (cons pat v) env))])]
-      [(quoted? pat)
-       (inspect-datum v
-                      env
-                      (lambda (v)
-                        (if (null-pattern? pat)
-                            (mk-if (list '#%prim.null? v) (k env) fail)
-                            (mk-if (list '#%prim.equal? v pat) (k env) fail))))]
+      [(quoted? pat) (compile-literal (cadr pat) v env k fail)]
       [(pair? pat) (compile-compound pat v env k fail)]
-      [else
-       (inspect-datum v
-                      env
-                      (lambda (v) (mk-if (list '#%prim.equal? v (list 'quote pat)) (k env) fail)))]))
+      [else (compile-literal pat v env k fail)]))
 
   ;; Matches every pattern against `v`
   (define (compile-and pats v env k fail)
@@ -659,10 +679,13 @@
       [(and (pair? (cdr pats)) (ellipsis-min (cadr pats)))
        (compile-repeat (car pats) (ellipsis-min (cadr pats)) (cddr pats) tail v env k fail)]
       [else
-       (define a (gensym))
+       (define known (lookup (list '#%car v) env))
+       (define a (or known (gensym)))
        (define d (gensym))
        (mk-if (list '#%prim.pair? v)
-              (mk-let (list (list a (list '#%prim.car v)) (list d (list '#%prim.cdr v)))
+              (mk-let (if known
+                          (list (list d (list '#%prim.cdr v)))
+                          (list (list a (list '#%prim.car v)) (list d (list '#%prim.cdr v))))
                       (compile-pattern (car pats)
                                        a
                                        env
@@ -876,7 +899,9 @@
                [bindings '()])
       (cond
         [(null? env) (mk-let (reverse bindings) body)]
-        [(or (member (car (car env)) seen) (member (car (car env)) flags))
+        [(or (not (symbol? (car (car env))))
+             (member (car (car env)) seen)
+             (member (car (car env)) flags))
          (loop (cdr env) seen bindings)]
         [else
          (loop (cdr env)
@@ -941,12 +966,40 @@
   (define (compile-match head exprs clauses split syntax-mode)
     (let ([inputs (map (lambda (_) (gensym)) exprs)])
       (mk-let (map list inputs exprs)
-              (compile-clauses clauses
-                               inputs
-                               split
-                               (if syntax-mode (list (cons '#%syntax #t)) '())
-                               (match-error inputs)
-                               (#%datum->syntax head 'else))))))
+              (if syntax-mode
+                  (inspect-inputs inputs
+                                  (list (cons '#%syntax #t))
+                                  (lambda (start)
+                                    (compile-clauses clauses
+                                                     inputs
+                                                     split
+                                                     start
+                                                     (match-error inputs)
+                                                     (#%datum->syntax head 'else))))
+                  (compile-clauses clauses
+                                   inputs
+                                   split
+                                   '()
+                                   (match-error inputs)
+                                   (#%datum->syntax head 'else))))))
+
+  ;; In match-syntax every clause looks inside the input, and most at its first element, so
+  ;; that's done once before them: syntax-e of a symbol isn't cheap
+  (define (inspect-inputs inputs env k)
+    (if (null? inputs)
+        (k env)
+        (let ([v (car inputs)]
+              [e (gensym)]
+              [h (gensym)]
+              [he (gensym)])
+          (mk-let (list (list e (mk-if (list 'syntax? v) (list 'syntax-e v) v)))
+                  (mk-let (list (list h (mk-if (list '#%prim.pair? e) (list '#%prim.car e) #f)))
+                          (mk-let (list (list he (mk-if (list 'syntax? h) (list 'syntax-e h) h)))
+                                  (inspect-inputs (cdr inputs)
+                                                  (cons (cons (list '#%e v) e)
+                                                        (cons (cons (list '#%car e) h)
+                                                              (cons (cons (list '#%e h) he) env)))
+                                                  k))))))))
 
 ;; ----------------- match --------------------
 

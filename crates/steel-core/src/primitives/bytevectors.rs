@@ -622,7 +622,7 @@ macro_rules! bytevector_accessor {
         #[doc = concat!("(", $ref_name, " vec 0) ;; => ", $example)]
         #[doc = "```"]
         #[function(name = $set_name)]
-        pub fn $set_fn(vector: &mut SteelByteVector, index: usize, value: $ty) -> Result<SteelVal> {
+        pub fn $set_fn(vector: &SteelByteVector, index: usize, value: $ty) -> Result<SteelVal> {
             const WIDTH: usize = core::mem::size_of::<$ty>();
 
             let mut guard = vector.vec.write();
@@ -753,7 +753,7 @@ pub fn s8_bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
     returns = Void,
     args(ByteVector, Number, Int)
 )]
-pub fn s8_bytes_set(value: &mut SteelByteVector, index: usize, byte: i8) -> Result<SteelVal> {
+pub fn s8_bytes_set(value: &SteelByteVector, index: usize, byte: i8) -> Result<SteelVal> {
     let mut guard = value.vec.write();
 
     if index >= guard.len() {

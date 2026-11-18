@@ -33,7 +33,7 @@ pub mod git;
 
 pub mod hashes;
 
-use crate::gc::{Gc, GcMut};
+use crate::gc::Gc;
 use crate::rvals::{FromSteelVal, IntoSteelVal, SteelByteVector};
 use crate::rvals::{
     FunctionSignature, PrimitiveAsRef, PrimitiveAsRefMut, SteelHashMap, SteelHashSet, SteelVal,
@@ -632,7 +632,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a StructRef {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a GcMut<SteelVal> {
+impl<'a> PrimitiveAsRef<'a> for &'a crate::rvals::StrongBox {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::Boxed(c) = val {

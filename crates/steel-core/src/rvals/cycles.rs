@@ -746,7 +746,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         }
     }
 
-    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
+    fn visit_boxed_value(&mut self, boxed_value: crate::rvals::StrongBox) -> Self::Output {
         if !self.add(
             (boxed_value.as_ptr() as usize, 0),
             &SteelVal::Boxed(boxed_value.clone()),
@@ -1223,7 +1223,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) {
+    fn visit_boxed_value(&mut self, boxed_value: crate::rvals::StrongBox) {
         if let Ok(inner) = boxed_value.try_unwrap() {
             self.push_back(inner.consume());
         }
@@ -1603,7 +1603,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
         }
     }
 
-    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) {
+    fn visit_boxed_value(&mut self, boxed_value: crate::rvals::StrongBox) {
         if let Ok(inner) = boxed_value.try_unwrap() {
             self.push_back(inner.consume());
         }
@@ -1794,7 +1794,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_builtin_function(&mut self, function: BuiltInSignature) -> Self::Output;
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output;
-    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output;
+    fn visit_boxed_value(&mut self, boxed_value: crate::rvals::StrongBox) -> Self::Output;
     fn visit_reference_value(&mut self, reference: Gc<OpaqueReference<'static>>) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
     fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output;
@@ -1901,7 +1901,7 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
     fn visit_builtin_function(&mut self, function: BuiltInSignature) -> Self::Output;
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output;
-    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output;
+    fn visit_boxed_value(&mut self, boxed_value: crate::rvals::StrongBox) -> Self::Output;
     fn visit_reference_value(&mut self, reference: Gc<OpaqueReference<'static>>) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
     fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output;
@@ -2009,7 +2009,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_builtin_function(&mut self, function: &'a BuiltInSignature) -> Self::Output;
     fn visit_boxed_iterator(&mut self, iterator: &'a GcMut<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: &'a Gc<Syntax>) -> Self::Output;
-    fn visit_boxed_value(&mut self, boxed_value: &'a GcMut<SteelVal>) -> Self::Output;
+    fn visit_boxed_value(&mut self, boxed_value: &'a crate::rvals::StrongBox) -> Self::Output;
     fn visit_reference_value(
         &mut self,
         reference: &'a Gc<OpaqueReference<'static>>,
@@ -2077,7 +2077,7 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
     fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output;
     fn visit_boxed_iterator(&mut self, iterator: &'a RwLock<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: &'a Syntax) -> Self::Output;
-    fn visit_boxed_value(&mut self, boxed_value: &'a RwLock<SteelVal>) -> Self::Output;
+    fn visit_boxed_value(&mut self, boxed_value: &'a crate::values::lock::SpinLock<SteelVal>) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
     fn visit_pair(&mut self, pair: &'a Pair) -> Self::Output;
 }
@@ -2925,7 +2925,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
         self.push_back(syntax_object.syntax.clone());
     }
 
-    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
+    fn visit_boxed_value(&mut self, boxed_value: crate::rvals::StrongBox) -> Self::Output {
         self.push_back(boxed_value.read().clone());
     }
 

@@ -4552,6 +4552,16 @@ fn call_keyword(expr: &ExprKind) -> Option<&InternedString> {
     }
 }
 
+/// `SemanticAnalysis::lower_rest_arguments` with the analysis given: whether
+/// anything changed
+pub(crate) fn lower_rest_arguments_with(exprs: &mut [ExprKind], analysis: &Analysis) -> bool {
+    let mut lower = LowerRestArguments::new(analysis);
+    for expr in exprs.iter_mut() {
+        lower.visit(expr);
+    }
+    lower.changed
+}
+
 struct LowerRestArguments<'a> {
     analysis: &'a Analysis,
     bindings: ScopeMap<InternedString, ExprKind, FxBuildHasher>,
@@ -6964,7 +6974,7 @@ fn simplify_or_enabled() -> bool {
 /// something out only costs a missed rewrite. Anything that can return a
 /// non-boolean value (`car`, arithmetic, a user function) must stay off this
 /// list, or `(or (car x) y)` would return `#true` instead of the element.
-const BOOLEAN_PRIMITIVES: &[&str] = &[
+pub(crate) const BOOLEAN_PRIMITIVES: &[&str] = &[
     "null?",
     "empty?",
     "pair?",
@@ -7013,7 +7023,7 @@ const BOOLEAN_PRIMITIVES: &[&str] = &[
 /// `struct` form binds from `(list-ref (make-struct-type ...) 2)`, and the
 /// names defined as one of those. A name that is assigned or defined twice
 /// isn't one.
-fn struct_predicate_names(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
+pub(crate) fn struct_predicate_names(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
     #[derive(Default)]
     struct Collector {
         tables: FxHashSet<InternedString>,
@@ -7158,14 +7168,14 @@ fn reference_count(expr: &ExprKind, var: &InternedString) -> usize {
 ///     `(if x #true y)`.
 ///
 /// The binding costs more than a slot, since it also opens a scope.
-struct SimplifyOrBindings {
+pub(crate) struct SimplifyOrBindings {
     rewritten: usize,
     bound: FxHashSet<InternedString>,
     struct_predicates: FxHashSet<InternedString>,
 }
 
 impl SimplifyOrBindings {
-    fn simplify(exprs: &mut Vec<ExprKind>) -> usize {
+    pub(crate) fn simplify(exprs: &mut Vec<ExprKind>) -> usize {
         let mut pass = Self {
             rewritten: 0,
             bound: bound_names(exprs),
@@ -7390,7 +7400,7 @@ fn hoist_car_enabled() -> bool {
 }
 
 /// Reads of a variable that pure primitives can be reordered around.
-const REORDERABLE_PRIMITIVES: &[&str] = &[
+pub(crate) const REORDERABLE_PRIMITIVES: &[&str] = &[
     "car",
     "cdr",
     "cons",
@@ -7436,7 +7446,7 @@ const REORDERABLE_PRIMITIVES: &[&str] = &[
 /// parameters). A bare name in this set is not the builtin of that name, since
 /// a program (or a module it requires) can define its own `car`, and in a main
 /// program that `car` is a top level define of the bare name.
-fn bound_names(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
+pub(crate) fn bound_names(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
     fn walk(expr: &ExprKind, out: &mut FxHashSet<InternedString>) {
         let bind = |name: &ExprKind, out: &mut FxHashSet<InternedString>| {
             if let Some(ident) = name.atom_identifier() {
@@ -7576,7 +7586,7 @@ impl VisitorMutRefUnit for ReplaceCarOf<'_> {
 ///
 /// Only fires where every argument is effect-free, so the reordering can only
 /// change which error a non-list would raise.
-struct HoistCarBeforeCdr {
+pub(crate) struct HoistCarBeforeCdr {
     rewritten: usize,
     // Whether the expression being visited is in tail position. A tail call
     // passing `(cdr x)` is a loop step, where the in-place cdr pays for the
@@ -7593,7 +7603,7 @@ struct HoistCarBeforeCdr {
 }
 
 impl HoistCarBeforeCdr {
-    fn hoist(exprs: &mut Vec<ExprKind>) -> usize {
+    pub(crate) fn hoist(exprs: &mut Vec<ExprKind>) -> usize {
         let mut pass = Self {
             rewritten: 0,
             in_tail: true,
@@ -7892,6 +7902,67 @@ impl VisitorMutRefUnit for HoistCarBeforeCdr {
 
 // Flattens the empty lets that define nothing, before internal defines are lowered, as a clause
 // body's `(let () ...)` is. Whether it flattened any.
+/// `((lambda (a b) body) x y)` to `(let ([a x] [b y]) body)`, innermost calls
+/// first. A rest argument gets the extra values as `(#%prim.#%const-list ...)`.
+/// Whether anything changed.
+pub(crate) fn anonymous_calls_to_lets(exprs: &mut [ExprKind]) -> bool {
+    struct Replace(bool);
+
+    impl VisitorMutRefUnit for Replace {
+        fn visit(&mut self, expr: &mut ExprKind) {
+            crate::compiler::passes::with_stack(|| match expr {
+                ExprKind::If(f) => self.visit_if(f),
+                ExprKind::Define(d) => self.visit_define(d),
+                ExprKind::LambdaFunction(l) => {
+                    crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+                }
+                ExprKind::Begin(b) => self.visit_begin(b),
+                ExprKind::Return(r) => self.visit_return(r),
+                ExprKind::Quote(q) => self.visit_quote(q),
+                ExprKind::Macro(m) => self.visit_macro(m),
+                ExprKind::Atom(a) => self.visit_atom(a),
+                ExprKind::List(l) => {
+                    // Bottom up: the parts first
+                    self.visit_list(l);
+                    if !l.is_anonymous_function_call() {
+                        return;
+                    }
+                    let ExprKind::LambdaFunction(mut f) = l.args.remove(0) else {
+                        unreachable!()
+                    };
+                    let function_body =
+                        core::mem::replace(&mut f.body, ExprKind::List(List::empty()));
+                    let mut args = core::mem::take(&mut l.args);
+                    if f.rest {
+                        let arity = f.args.len().saturating_sub(1);
+                        let mut remaining = args.split_off(arity);
+                        remaining.insert(0, ExprKind::ident("#%prim.#%const-list"));
+                        args.push(ExprKind::List(List::new(remaining)));
+                    }
+                    let let_expr = Let::new(
+                        f.args.into_iter().zip(args).collect(),
+                        function_body,
+                        f.location.clone(),
+                    );
+                    *expr = ExprKind::Let(let_expr.into());
+                    self.0 = true;
+                }
+                ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+                ExprKind::Set(s) => self.visit_set(s),
+                ExprKind::Require(r) => self.visit_require(r),
+                ExprKind::Let(l) => self.visit_let(l),
+                ExprKind::Vector(v) => self.visit_vector(v),
+            })
+        }
+    }
+
+    let mut replace = Replace(false);
+    for expr in exprs.iter_mut() {
+        replace.visit(expr);
+    }
+    replace.0
+}
+
 pub(crate) fn flatten_definition_free_empty_lets(exprs: &mut Vec<ExprKind>) -> bool {
     fn defines(expr: &ExprKind) -> bool {
         match expr {
@@ -10030,71 +10101,7 @@ impl<'a> SemanticAnalysis<'a> {
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
 
-        let mut re_run_analysis = false;
-
-        let func = |_: &Analysis, anon: &mut ExprKind| {
-            if let ExprKind::List(l) = anon {
-                // Don't replace anonymous function calls that have rest args - those are not yet handled
-                // with a blind let replacement
-                if let ExprKind::LambdaFunction(_) = l.args.first().unwrap() {
-                    // if f.rest {
-                    //     // return false;
-                    // }
-                } else {
-                    return false;
-                }
-
-                // println!("Going to replace: {}", l);
-
-                let function = l.args.remove(0);
-
-                if let ExprKind::LambdaFunction(mut f) = function {
-                    let mut function_body = ExprKind::List(List::empty());
-                    core::mem::swap(&mut f.body, &mut function_body);
-
-                    let mut args = core::mem::take(&mut l.args);
-
-                    if f.rest {
-                        // println!("{} - {}", f, l);
-                        // println!("args: {:?}", args);
-                        let arity = f.args.len().saturating_sub(1);
-                        // println!("Arity: {}", arity);
-                        let mut remaining = args.split_off(arity);
-                        remaining.insert(0, ExprKind::ident("#%prim.#%const-list"));
-                        args.push(ExprKind::List(List::new(remaining)));
-                        // println!("Args after: {:?}", args);
-
-                        // if args.is_empty() {
-                        //     let remaining = thin_vec![ExprKind::ident("#%prim.list")];
-                        //     args.push(ExprKind::List(List::new(remaining)));
-                        // }
-                    }
-
-                    let let_expr = Let::new(
-                        f.args.into_iter().zip(args).map(|x| (x.0, x.1)).collect(),
-                        function_body,
-                        f.location.clone(),
-                    );
-
-                    *anon = ExprKind::Let(let_expr.into());
-
-                    // println!("REPLACED: {}", anon);
-
-                    re_run_analysis = true;
-                    // log::debug!("Replaced anonymous function call with let");
-
-                    true
-                } else {
-                    unreachable!()
-                }
-            } else {
-                unreachable!()
-            }
-
-            // false
-        };
-
-        self.find_anonymous_function_calls_and_mutate_with(func);
+        let re_run_analysis = anonymous_calls_to_lets(self.exprs);
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Anonymous function calls -> lets time: {:?}", now.elapsed());
@@ -10670,12 +10677,7 @@ impl<'a> SemanticAnalysis<'a> {
 
     // When its a constant list, and its been used once
     pub fn lower_rest_arguments(&mut self) -> &mut Self {
-        let mut lower = LowerRestArguments::new(&self.analysis);
-        for expr in self.exprs.iter_mut() {
-            lower.visit(expr);
-        }
-
-        if lower.changed {
+        if lower_rest_arguments_with(self.exprs, &self.analysis) {
             self.analysis.fresh_from_exprs(self.exprs);
         }
 

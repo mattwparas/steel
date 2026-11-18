@@ -2,6 +2,7 @@
 #![allow(unpredictable_function_pointer_comparisons)]
 
 mod native;
+use native::ByteElement;
 
 use core::{mem::offset_of, ptr::NonNull};
 use cranelift::{
@@ -5910,6 +5911,72 @@ impl FunctionTranslator<'_> {
         None
     }
 
+    /// `unbox-strong` / `set-strong-box!` inline, in any position, taking the
+    /// operands the way `inline_box_primitive` does. `None`, having emitted
+    /// nothing, when the generic call has to handle it.
+    fn inline_strong_box_primitive(&mut self, target: usize, arity: usize) -> Option<Value> {
+        if target == crate::steel_vm::primitives::steel_unbox as *const () as usize && arity == 1 {
+            let (value, owned) = match self.shadow_stack.last().copied()? {
+                MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i) => {
+                    self.shadow_stack_pop();
+                    (self.read_from_vm_stack(i), false)
+                }
+                MaybeStackValue::Value(StackValue { value, .. }) => {
+                    self.shadow_stack_pop();
+                    (value, true)
+                }
+                MaybeStackValue::Borrowed(_) | MaybeStackValue::Constant(_) => return None,
+            };
+            return Some(self.unbox_strong_checked(value, owned));
+        }
+
+        if target == crate::steel_vm::primitives::steel_set_box as *const () as usize && arity == 2 {
+            // A box in a register stays alive in its slot, and a captured one
+            // in its closure, so neither is cloned for the write
+            if let Some(MaybeStackValue::Register(r)) =
+                self.shadow_stack.get(self.shadow_stack.len() - 2).copied()
+            {
+                let value = self.split_off(1)[0].0;
+                self.shadow_stack.pop();
+                let boxed = self.read_from_vm_stack(r);
+                return Some(self.set_strong_box_checked(boxed, value, false));
+            }
+            if let Some(MaybeStackValue::Constant(ConstantValue::Captured(c))) =
+                self.shadow_stack.get(self.shadow_stack.len() - 2).copied()
+            {
+                let value = self.split_off(1)[0].0;
+                self.shadow_stack.pop();
+                let boxed = self.inline_read_captured(c, false);
+                return Some(self.set_strong_box_checked(boxed, value, false));
+            }
+            let args = self
+                .split_off(arity)
+                .into_iter()
+                .map(|x| x.0)
+                .collect::<Vec<_>>();
+            return Some(self.set_strong_box_checked(args[0], args[1], true));
+        }
+
+        None
+    }
+
+    /// Whether `inline_strong_box_primitive` will take this call
+    fn strong_box_primitive_inlinable(&self, target: usize, arity: usize) -> bool {
+        if target == crate::steel_vm::primitives::steel_unbox as *const () as usize && arity == 1 {
+            return matches!(
+                self.shadow_stack.last(),
+                Some(
+                    MaybeStackValue::MutRegister(_)
+                        | MaybeStackValue::Register(_)
+                        | MaybeStackValue::Value(_)
+                )
+            );
+        }
+        target == crate::steel_vm::primitives::steel_set_box as *const () as usize
+            && arity == 2
+            && self.shadow_stack.len() >= 2
+    }
+
     /// Whether `inline_box_primitive` will take this call, without emitting.
     fn box_primitive_inlinable(&self, target: usize, arity: usize) -> bool {
         if target == crate::steel_vm::primitives::steel_unbox_mutable as *const () as usize
@@ -6814,6 +6881,51 @@ impl FunctionTranslator<'_> {
             self.inline_bytes_ref(bytevector_value, args[1], owned, fallback)
         } else {
             self.inline_bytes_set(bytevector_value, args[1], args[2], owned, fallback)
+        }
+    }
+
+    /// `bytevector-s8-ref` ... `bytevector-f64-set!` with no call: as
+    /// `inline_byte_vector_op`, for an element of `kind`
+    fn inline_typed_byte_vector_op(
+        &mut self,
+        function: FunctionSignature,
+        kind: ByteElement,
+        arity: usize,
+    ) -> Value {
+        let owned = true;
+
+        let args = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        let bytevector_value = args[0];
+        let ip = self.ip;
+
+        let fallback = {
+            let args = args.clone();
+            move |ctx: &mut Self| {
+                let func = ctx
+                    .builder
+                    .ins()
+                    .iconst(ctx.module.target_config().pointer_type(), function as i64);
+                let fallback_ip = ctx.i64_const(ip as i64);
+
+                let name = CallPrimitiveDefinitions::arity_to_name(arity).unwrap();
+                let mut call_args = vec![func, fallback_ip];
+                call_args.extend(args.iter().copied());
+
+                let res = ctx.call_function_returns_value_args(name, &call_args);
+                ctx.check_deopt();
+                res
+            }
+        };
+
+        if arity == 2 {
+            self.inline_typed_bytes_ref(kind, bytevector_value, args[1], owned, fallback)
+        } else {
+            self.inline_typed_bytes_set(kind, bytevector_value, args[1], args[2], owned, fallback)
         }
     }
 

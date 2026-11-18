@@ -746,6 +746,35 @@ fn box_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     SteelVal::HeapAllocated(allocated_var)
 }
 
+// What `unbox-strong` / `set-strong-box!` do when the inline path doesn't
+// apply, which is when the argument isn't a strong box: the primitive itself,
+// for its error
+#[cross_platform_fn]
+fn unbox_strong_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+    let this = unsafe { &mut *ctx };
+    match crate::steel_vm::primitives::steel_unbox(&[arg]) {
+        Ok(value) => value,
+        Err(err) => {
+            this.is_native = false;
+            this.result = Some(Err(err));
+            SteelVal::Void
+        }
+    }
+}
+
+#[cross_platform_fn]
+fn set_strong_box_handler_c(ctx: *mut VmCore, boxed: SteelVal, value: SteelVal) -> SteelVal {
+    let this = unsafe { &mut *ctx };
+    match crate::steel_vm::primitives::steel_set_box(&[boxed, value]) {
+        Ok(value) => value,
+        Err(err) => {
+            this.is_native = false;
+            this.result = Some(Err(err));
+            SteelVal::Void
+        }
+    }
+}
+
 #[cross_platform_fn]
 fn unbox_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     let this = unsafe { &mut *ctx };

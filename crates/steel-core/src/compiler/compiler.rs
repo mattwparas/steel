@@ -445,6 +445,8 @@ pub struct Compiler {
     pub(crate) module_manager: ModuleManager,
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
+    // Compiler passes written in Steel, run in the kernel
+    pub(crate) steel_passes: crate::compiler::passes::steel_passes::SteelPasses,
     memoization_table: MemoizationTable,
     mangled_identifiers: FxHashMap<InternedString, InternedString>,
     // Try this out?
@@ -654,6 +656,7 @@ impl Compiler {
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashMap::default(),
             lifted_kernel_environments: HashMap::new(),
+            steel_passes: crate::compiler::passes::steel_passes::SteelPasses::from_config(),
             phase1_imports: Vec::new(),
             template_globals: Default::default(),
             lifted_macro_environments: HashMap::new(),
@@ -689,6 +692,7 @@ impl Compiler {
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashMap::default(),
             lifted_kernel_environments: HashMap::new(),
+            steel_passes: crate::compiler::passes::steel_passes::SteelPasses::from_config(),
             phase1_imports: Vec::new(),
             template_globals: Default::default(),
             lifted_macro_environments: HashMap::new(),
@@ -1328,9 +1332,7 @@ impl Compiler {
         // A clause body's `(let () ...)` that defines nothing is its body, before the passes
         // that rename and lift see its scope
         if crate::config::config().flatten_empty_lets {
-            crate::compiler::passes::analysis::flatten_definition_free_empty_lets(
-                &mut expanded_statements,
-            );
+            self.flatten_empty_lets_site(&mut expanded_statements)?;
         }
 
         self.shadowed_variable_renamer
@@ -1457,6 +1459,9 @@ impl Compiler {
         let expanded_statements =
             self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
 
+        let expanded_statements =
+            self.steel_pass_point("after-constant-folding", expanded_statements)?;
+
         // TODO: Because this runs here, we're losing the ability to lift pure local functions.
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
@@ -1469,9 +1474,7 @@ impl Compiler {
         // A clause body's `(let () ...)` that defines nothing is its body, before the passes
         // that rename and lift see its scope
         if crate::config::config().flatten_empty_lets {
-            crate::compiler::passes::analysis::flatten_definition_free_empty_lets(
-                &mut expanded_statements,
-            );
+            self.flatten_empty_lets_site(&mut expanded_statements)?;
         }
 
         // TODO: Probably lift this above the const evaluation anyway
@@ -1516,6 +1519,9 @@ impl Compiler {
 
         let mut analysis = semantic.into_analysis();
 
+        expanded_statements =
+            self.steel_pass_point("after-analysis-passes", expanded_statements)?;
+
         if crate::compiler::passes::flat_vector::enabled() {
             crate::compiler::passes::flat_vector::run(&mut expanded_statements, &analysis);
         }
@@ -1524,9 +1530,7 @@ impl Compiler {
 
         // And those whose defines are lowered now
         if crate::config::config().flatten_empty_lets {
-            crate::compiler::passes::analysis::flatten_definition_free_empty_lets(
-                &mut expanded_statements,
-            );
+            self.flatten_empty_lets_site(&mut expanded_statements)?;
         }
 
         self.shadowed_variable_renamer
@@ -1635,11 +1639,29 @@ impl Compiler {
 
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
-        // analysis.populate_captures(&expanded_statements);
         // Do this again
-        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-        semantic.replace_anonymous_function_calls_with_plain_lets();
-        semantic.refresh_variables_if_changed();
+        let mut semantic = match self.steel_site(
+            "anonymous-lets",
+            &mut expanded_statements,
+            |exprs| crate::compiler::passes::analysis::anonymous_calls_to_lets(exprs),
+        )? {
+            None => {
+                let mut semantic =
+                    SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+                semantic.replace_anonymous_function_calls_with_plain_lets();
+                semantic.refresh_variables_if_changed();
+                semantic
+            }
+            // The analysis was of the program before the pass
+            Some(_) => {
+                analysis.fresh_from_exprs(&expanded_statements);
+                analysis.populate_captures(&expanded_statements);
+                let mut semantic =
+                    SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+                semantic.refresh_variables();
+                semantic
+            }
+        };
 
         semantic.substitute_known_function_bindings(self.modules());
         // Substituting a lambda into its call sites leaves an applied lambda.
@@ -1708,6 +1730,8 @@ impl Compiler {
 
         let mut analysis = semantic.into_analysis();
 
+        let expanded_statements = self.steel_pass_point("after-inlining", expanded_statements)?;
+
         // We don't want to leave this allocate memory just hanging around, but leave enough for
         // interactive usages
         // self.analysis.shrink_capacity();
@@ -1721,10 +1745,23 @@ impl Compiler {
 
         analysis.fresh_from_exprs(&expanded_statements);
 
-        semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-
         // This might have to run later?
-        semantic.lower_rest_arguments();
+        let lowered = self.steel_site("lower-rest", &mut expanded_statements, |exprs| {
+            let analysis = crate::compiler::passes::analysis::Analysis::from_exprs(exprs);
+            crate::compiler::passes::analysis::lower_rest_arguments_with(exprs, &analysis)
+        })?;
+        match lowered {
+            None => {
+                semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+                semantic.lower_rest_arguments();
+            }
+            Some(changed) => {
+                if changed {
+                    analysis.fresh_from_exprs(&expanded_statements);
+                }
+                semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+            }
+        }
 
         if let Some(inline_more) = &crate::config::config().inline_more {
             // A comma separated list of size thresholds, one round per size.
@@ -1771,14 +1808,33 @@ impl Compiler {
         // `or` expands to `(let ([z x]) (if z z y))`. The binding can be dropped
         // when `x` is free to evaluate again or is boolean valued. This runs after
         // inlining so it also catches the `or`s that inlining exposes.
-        semantic.simplify_or_bindings();
-
+        //
         // `(loop (cdr l) ... (car l) ...)` reads `l` after the `cdr`, so the
         // `cdr` cannot advance the list in place and has to build a new one.
         // Binding the `car` first makes the `cdr` the last use.
-        let hoisted = semantic.hoist_car_before_cdr();
-        if crate::config::config().hoist_car_debug && hoisted > 0 {
-            eprintln!("[hoist-car] rewrote {hoisted} sites");
+        //
+        // Both have Steel versions; next to each other, they share one trip to
+        // syntax when both run in Steel.
+        {
+            use crate::compiler::passes::analysis::{HoistCarBeforeCdr, SimplifyOrBindings};
+            let config = crate::config::config();
+            let or_bindings = |exprs: &mut Vec<ExprKind>| SimplifyOrBindings::simplify(exprs) > 0;
+            let hoist_car = |exprs: &mut Vec<ExprKind>| {
+                let hoisted = HoistCarBeforeCdr::hoist(exprs);
+                if config.hoist_car_debug && hoisted > 0 {
+                    eprintln!("[hoist-car] rewrote {hoisted} sites");
+                }
+                hoisted > 0
+            };
+            let mut sites: Vec<(&str, &dyn Fn(&mut Vec<ExprKind>) -> bool)> = Vec::new();
+            if config.simplify_or {
+                sites.push(("or-bindings", &or_bindings));
+            }
+            if config.hoist_car {
+                sites.push(("hoist-car", &hoist_car));
+            }
+            let kernel = self.kernel.is_some();
+            self.steel_passes.run_sites(kernel, semantic.exprs, &sites)?;
         }
 
         // Inlining and closure lifting can make a variable captured and mutated
@@ -1814,6 +1870,9 @@ impl Compiler {
 
         self.analysis = semantic.into_analysis();
         self.analysis.shrink_capacity();
+
+        let expanded_statements =
+            self.steel_pass_point("before-code-generation", expanded_statements)?;
 
         if crate::config::config().debug_ast {
             steel_parser::ast::AstTools::pretty_print(&expanded_statements);
@@ -1922,6 +1981,66 @@ impl Compiler {
         mut _expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
         todo!("Implement kernel level const evaluation here!")
+    }
+
+    // Where a compiler pass written in Steel could run (STEEL_PASSES_IN_STEEL_PLAN.md).
+    // A pass with a Steel version, where its Rust version runs (`rust`). `None`
+    // when the Rust version is to run as it always has.
+    fn steel_site(
+        &mut self,
+        site: &str,
+        exprs: &mut Vec<ExprKind>,
+        rust: impl FnOnce(&mut Vec<ExprKind>) -> bool,
+    ) -> Result<Option<bool>> {
+        let kernel = self.kernel.is_some();
+        self.steel_passes.run_site(kernel, site, exprs, rust)
+    }
+
+    // A flatten of the definition free empty lets, by the `empty-lets` pass's mode
+    fn flatten_empty_lets_site(&mut self, exprs: &mut Vec<ExprKind>) -> Result<()> {
+        use crate::compiler::passes::analysis::flatten_definition_free_empty_lets;
+        if self
+            .steel_site("empty-lets", exprs, flatten_definition_free_empty_lets)?
+            .is_none()
+        {
+            flatten_definition_free_empty_lets(exprs);
+        }
+        Ok(())
+    }
+
+    // For now only the round trip through Steel syntax, under STEEL_PASS_ROUNDTRIP: the
+    // program has to come back exactly as it went, and the rest of compilation uses the copy.
+    fn steel_pass_point(&mut self, point: &str, exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
+        let exprs = self.steel_passes.run(self.kernel.as_mut(), point, exprs)?;
+
+        let config = crate::config::config();
+        if !config.pass_roundtrip {
+            return Ok(exprs);
+        }
+
+        let start = crate::time::Instant::now();
+        let mut bridge = crate::compiler::passes::syntax_bridge::SyntaxBridge::new();
+        let syntax = bridge.encode_program(&exprs)?;
+        let to_syntax = start.elapsed();
+        let back = bridge.decode_program(&syntax)?;
+        let total = start.elapsed();
+
+        if config.pass_roundtrip_times {
+            eprintln!(
+                "pass round trip {point}: {} top level forms, to syntax {:?}, back {:?}",
+                exprs.len(),
+                to_syntax,
+                total - to_syntax
+            );
+        }
+
+        if let Some(difference) =
+            crate::compiler::passes::syntax_bridge::first_difference(&exprs, &back)
+        {
+            stop!(Generic => "the syntax round trip at {} changed the program: {}", point, difference);
+        }
+
+        Ok(back)
     }
 
     fn apply_const_evaluation(

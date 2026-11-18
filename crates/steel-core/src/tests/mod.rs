@@ -22,6 +22,7 @@ mod module_contracts;
 mod module_template_names;
 mod phase1_bindings;
 mod runtime_functions;
+mod steel_passes;
 #[cfg(feature = "sync")]
 mod serialization;
 
@@ -139,10 +140,12 @@ macro_rules! test_harness_failure {
 
 test_harness_success_sync! {
     native_threads,
-    gc_deadlock
+    gc_deadlock,
+    strong_boxes
 }
 
 test_harness_success! {
+    bytevector_typed_access,
     exact_and_float_comparisons,
     identifier_macros,
     comparisons_of_nan_and_non_numbers,

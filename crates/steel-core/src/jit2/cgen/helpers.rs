@@ -174,6 +174,8 @@ jit_helpers! {
     CAR_REG = "car-reg" => car_handler_reg: ctx_raises fn(usize) -> SteelVal;
     BOX_HANDLER = "box-handler" => box_handler_c: ctx fn(SteelVal) -> SteelVal;
     UNBOX_HANDLER = "unbox-handler" => unbox_handler_c: ctx_raises fn(SteelVal) -> SteelVal;
+    UNBOX_STRONG_HANDLER = "unbox-strong-handler" => unbox_strong_handler_c: ctx_raises fn(SteelVal) -> SteelVal;
+    SET_STRONG_BOX_HANDLER = "set-strong-box-handler" => set_strong_box_handler_c: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
     CHECK_IN = "check-in" => jit_check_in: ctx_raises fn();
     SET_BOX_SHARED = "set-box-shared" => set_box_shared: plain fn(SteelVal, SteelVal) -> SteelVal;
     UNBOX_SHARED = "unbox-shared" => unbox_shared: plain fn(SteelVal) -> SteelVal;

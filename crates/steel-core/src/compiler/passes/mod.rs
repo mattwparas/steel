@@ -8,6 +8,9 @@ pub mod mangle;
 pub mod opt;
 pub mod scopes_check;
 pub mod shadow;
+pub(crate) mod pass_queries;
+pub(crate) mod steel_passes;
+pub(crate) mod syntax_bridge;
 pub mod types;
 
 use core::ops::ControlFlow;

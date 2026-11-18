@@ -37,6 +37,10 @@ impl<T> SpinLock<T> {
         }
     }
 
+    pub fn into_inner(self) -> T {
+        self.data.into_inner()
+    }
+
     pub const fn data_offset() -> usize {
         offset_of!(SpinLock<T>, data)
     }

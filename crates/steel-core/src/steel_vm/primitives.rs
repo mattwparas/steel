@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     compiler::modules::steel_home,
-    gc::{shared::ShareableMut, GcMut},
+    gc::shared::ShareableMut,
     parser::{
         ast::TryFromSteelValVisitorForExprKind, interner::InternedString, span::Span,
         tryfrom_visitor::TryFromExprKindForSteelVal,
@@ -2918,7 +2918,7 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 /// > (unbox-strong b) ;; => 'a
 /// ```
 #[steel_derive::function(name = "unbox-strong")]
-pub fn unbox(value: &GcMut<SteelVal>) -> SteelVal {
+pub fn unbox(value: &crate::rvals::StrongBox) -> SteelVal {
     value.read().clone()
 }
 
@@ -2941,7 +2941,7 @@ pub fn unbox(value: &GcMut<SteelVal>) -> SteelVal {
 /// > (unbox-strong b) ;; => 2
 /// ```
 #[steel_derive::function(name = "set-strong-box!")]
-pub fn set_box(value: &GcMut<SteelVal>, update_to: SteelVal) {
+pub fn set_box(value: &crate::rvals::StrongBox, update_to: SteelVal) {
     *value.write() = update_to;
 }
 
