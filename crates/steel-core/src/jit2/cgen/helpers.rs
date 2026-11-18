@@ -214,6 +214,10 @@ jit_helpers! {
     ADD_BINOP = "add-binop" => extern_c_add_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;
     ADD_THREE = "add-three" => extern_c_add_three: ctx_raises fn(SteelVal, SteelVal, SteelVal) -> SteelVal;
     ADD_FOUR = "add-four" => extern_c_add_four: ctx_raises fn(SteelVal, SteelVal, SteelVal, SteelVal) -> SteelVal;
+    ADD_FIVE = "add-five" => extern_c_add_five: ctx_raises fn(SteelVal, SteelVal, SteelVal, SteelVal, SteelVal) -> SteelVal;
+    ADD_SIX = "add-six" => extern_c_add_six: ctx_raises fn(SteelVal, SteelVal, SteelVal, SteelVal, SteelVal, SteelVal) -> SteelVal;
+    ADD_SEVEN = "add-seven" => extern_c_add_seven: ctx_raises fn(SteelVal, SteelVal, SteelVal, SteelVal, SteelVal, SteelVal, SteelVal) -> SteelVal;
+    ADD_EIGHT = "add-eight" => extern_c_add_eight: ctx_raises fn(SteelVal, SteelVal, SteelVal, SteelVal, SteelVal, SteelVal, SteelVal, SteelVal) -> SteelVal;
     ADD_BINOP_REG = "add-binop-reg" => extern_c_add_two_binop_register: ctx_raises fn(usize, SteelVal) -> SteelVal;
     ADD_BINOP_REG_2 = "add-binop-reg-2" => extern_c_add_two_binop_register_both: ctx_raises fn(usize, usize) -> SteelVal;
     SUB_BINOP = "sub-binop" => extern_c_sub_two: ctx_raises fn(SteelVal, SteelVal) -> SteelVal;

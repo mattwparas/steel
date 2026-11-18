@@ -81,6 +81,21 @@
   (write-bytes (bytes 97 255 98) out)
   (assert-equal! (get-output-string out) (string-append "a" replacement "b")))
 
+;; write-bytes with start and end, as in Racket
+(let ([out (open-output-bytevector)]
+      [buf (bytes 97 98 99 100 101)])
+  (assert-equal! (write-bytes buf out) 5)
+  (assert-equal! (write-bytes buf out 3) 2)
+  (assert-equal! (write-bytes buf out 1 3) 2)
+  (assert-equal! (write-bytes buf out 2 2) 0)
+  (assert-equal! (write-bytevector buf out 0 1) 1)
+  (assert-equal! (get-output-bytevector out) (bytes 97 98 99 100 101 100 101 98 99 97))
+  (assert-equal! 'err (with-handler (lambda (err) 'err) (write-bytes buf out 6)))
+  (assert-equal! 'err (with-handler (lambda (err) 'err) (write-bytes buf out 3 2)))
+  (assert-equal! 'err (with-handler (lambda (err) 'err) (write-bytes buf out 0 6)))
+  (assert-equal! 'err (with-handler (lambda (err) 'err) (write-bytes buf out -1)))
+  (assert-equal! (get-output-bytevector out) (bytes 97 98 99 100 101 100 101 98 99 97)))
+
 (assert-equal! (bytes->string/utf-8 (bytes 97 98)) "ab")
 (assert-equal! 'err (with-handler (lambda (err) 'err) (bytes->string/utf-8 (bytes 97 255 98))))
 

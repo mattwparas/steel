@@ -26,7 +26,7 @@ use crate::{
         bytevectors::{steel_bytes_ref, steel_bytes_set},
         lists::{steel_is_empty, steel_list_contains, steel_memq, steel_pair, steel_reverse},
         numbers::{
-            bitwise_and, bitwise_ior, bitwise_xor, floor_quotient, floor_remainder, modulo,
+            arithmetic_shift, bitwise_and, bitwise_ior, bitwise_xor, floor_quotient, floor_remainder, modulo,
             quotient, remainder, steel_ceiling, steel_exact, steel_floor, steel_round,
             steel_truncate, truncate_quotient, truncate_remainder,
         },
@@ -4319,6 +4319,10 @@ enum OperandHelper {
     Two(Helper<2, true, true, true>),
     Three(Helper<3, true, true, true>),
     Four(Helper<4, true, true, true>),
+    Five(Helper<5, true, true, true>),
+    Six(Helper<6, true, true, true>),
+    Seven(Helper<7, true, true, true>),
+    Eight(Helper<8, true, true, true>),
     OneSafe(Helper<1, true, true, false>),
     TwoSafe(Helper<2, true, true, false>),
 }
@@ -4330,6 +4334,10 @@ impl OperandHelper {
             OperandHelper::Two(h) => h.name,
             OperandHelper::Three(h) => h.name,
             OperandHelper::Four(h) => h.name,
+            OperandHelper::Five(h) => h.name,
+            OperandHelper::Six(h) => h.name,
+            OperandHelper::Seven(h) => h.name,
+            OperandHelper::Eight(h) => h.name,
             OperandHelper::OneSafe(h) => h.name,
             OperandHelper::TwoSafe(h) => h.name,
         }
@@ -4344,6 +4352,10 @@ fn operand_helper(op: OpCode, payload: usize) -> Option<OperandHelper> {
         (OpCode::ADD, 2) => Two(ADD_BINOP),
         (OpCode::ADD, 3) => Three(ADD_THREE),
         (OpCode::ADD, 4) => Four(ADD_FOUR),
+        (OpCode::ADD, 5) => Five(ADD_FIVE),
+        (OpCode::ADD, 6) => Six(ADD_SIX),
+        (OpCode::ADD, 7) => Seven(ADD_SEVEN),
+        (OpCode::ADD, 8) => Eight(ADD_EIGHT),
         (OpCode::SUB, 1) => One(SUB_NEGATE),
         (OpCode::SUB, 2) => Two(SUB_BINOP),
         (OpCode::SUB, 3) => Three(SUB_THREE),
@@ -5022,7 +5034,7 @@ impl FunctionTranslator<'_> {
                 }
 
                 OpCode::ADD | OpCode::SUB | OpCode::MUL
-                    if (matches!(payload, 2 | 3) || (op == OpCode::ADD && payload == 4))
+                    if (matches!(payload, 2 | 3) || (op == OpCode::ADD && (4..=8).contains(&payload)))
                         && generic_inline_enabled()
                         && float_inline_enabled() =>
                 {
@@ -5035,6 +5047,18 @@ impl FunctionTranslator<'_> {
                         }
                         Some(OperandHelper::Four(fallback)) => {
                             self.inline_number_op::<4>(op, fallback)
+                        }
+                        Some(OperandHelper::Five(fallback)) => {
+                            self.inline_number_op::<5>(op, fallback)
+                        }
+                        Some(OperandHelper::Six(fallback)) => {
+                            self.inline_number_op::<6>(op, fallback)
+                        }
+                        Some(OperandHelper::Seven(fallback)) => {
+                            self.inline_number_op::<7>(op, fallback)
+                        }
+                        Some(OperandHelper::Eight(fallback)) => {
+                            self.inline_number_op::<8>(op, fallback)
                         }
                         _ => unreachable!("{op:?} has a helper for {payload} operands"),
                     };
@@ -7190,33 +7214,98 @@ impl FunctionTranslator<'_> {
 
     /// `bitwise-and`, `bitwise-ior` or `bitwise-xor` of two fixnums inline.
     /// The primitive raises for anything else, so the result is always a fixnum.
-    fn inline_int_bitwise(&mut self, op: BitwiseOp, function: FunctionSignature) -> Value {
+    /// `bitwise-and` / `-ior` / `-xor` over `arity` fixnums (2 to 4), folded left.
+    /// Anything else calls the primitive.
+    fn inline_int_bitwise(
+        &mut self,
+        op: BitwiseOp,
+        function: FunctionSignature,
+        arity: usize,
+    ) -> Value {
+        match arity {
+            2 => self.inline_int_bitwise_n::<2>(op, function),
+            3 => self.inline_int_bitwise_n::<3>(op, function),
+            4 => self.inline_int_bitwise_n::<4>(op, function),
+            _ => unreachable!("the bitwise entries are guarded to 2 to 4 operands"),
+        }
+    }
+
+    fn inline_int_bitwise_n<const N: usize>(
+        &mut self,
+        op: BitwiseOp,
+        function: FunctionSignature,
+    ) -> Value {
+        self.guarded_op::<N>()
+            .require([SteelVal::INT_TAG; N])
+            .emit(
+                |ctx, args| {
+                    let mut acc = ctx.unbox_value_to_pointer(args[0]);
+                    for &arg in &args[1..] {
+                        let r = ctx.unbox_value_to_pointer(arg);
+                        acc = match op {
+                            BitwiseOp::And => ctx.builder.ins().band(acc, r),
+                            BitwiseOp::Ior => ctx.builder.ins().bor(acc, r),
+                            BitwiseOp::Xor => ctx.builder.ins().bxor(acc, r),
+                        };
+                    }
+                    ctx.encode_value(SteelVal::INT_TAG as _, acc)
+                },
+                |ctx, args| ctx.call_primitive_fallback(function, &args),
+                types::I128,
+            )
+    }
+
+    /// Calls `function` on `args` as the generic path does, for an inline fast
+    /// path's fallback.
+    fn call_primitive_fallback(&mut self, function: FunctionSignature, args: &[Value]) -> Value {
+        let func = self
+            .builder
+            .ins()
+            .iconst(self.module.target_config().pointer_type(), function as i64);
+        let fallback_ip = self.i64_const(self.ip as i64);
+
+        let name = CallPrimitiveDefinitions::arity_to_name(args.len()).unwrap();
+        let mut call_args = vec![func, fallback_ip];
+        call_args.extend_from_slice(args);
+        let res = self.call_function_returns_value_args(name, &call_args);
+        self.check_deopt();
+        res
+    }
+
+    /// `arithmetic-shift` of two fixnums, where the result is a fixnum: any right
+    /// shift, or a left shift by less than the word size that loses no bits.
+    /// Anything else (a bignum result, bignum operands, a type error) calls the
+    /// primitive.
+    fn inline_arithmetic_shift(&mut self, function: FunctionSignature) -> Value {
         self.guarded_op::<2>()
             .require([SteelVal::INT_TAG, SteelVal::INT_TAG])
+            // Pure bit arithmetic, fine to compute before the tags are known.
+            .and_also(|ctx, [n, m]| {
+                let n = ctx.unbox_value_to_pointer(n);
+                let m = ctx.unbox_value_to_pointer(m);
+                let right = ctx.builder.ins().icmp_imm_s(IntCC::SignedLessThan, m, 0);
+                let in_width = ctx.builder.ins().icmp_imm_u(IntCC::UnsignedLessThan, m, 64);
+                let shifted = ctx.builder.ins().ishl(n, m);
+                let back = ctx.builder.ins().sshr(shifted, m);
+                let exact = ctx.builder.ins().icmp(IntCC::Equal, back, n);
+                let left_fits = ctx.builder.ins().band(in_width, exact);
+                ctx.builder.ins().bor(right, left_fits)
+            })
             .emit(
-                |ctx, [lhs, rhs]| {
-                    let l = ctx.unbox_value_to_pointer(lhs);
-                    let r = ctx.unbox_value_to_pointer(rhs);
-                    let res = match op {
-                        BitwiseOp::And => ctx.builder.ins().band(l, r),
-                        BitwiseOp::Ior => ctx.builder.ins().bor(l, r),
-                        BitwiseOp::Xor => ctx.builder.ins().bxor(l, r),
-                    };
+                |ctx, [n, m]| {
+                    let n = ctx.unbox_value_to_pointer(n);
+                    let m = ctx.unbox_value_to_pointer(m);
+                    let right = ctx.builder.ins().icmp_imm_s(IntCC::SignedLessThan, m, 0);
+                    // A right shift by the magnitude, at most 63 so only the sign is left
+                    let magnitude = ctx.builder.ins().ineg(m);
+                    let sixty_three = ctx.builder.ins().iconst(types::I64, 63);
+                    let amount = ctx.builder.ins().umin(magnitude, sixty_three);
+                    let shifted_right = ctx.builder.ins().sshr(n, amount);
+                    let shifted_left = ctx.builder.ins().ishl(n, m);
+                    let res = ctx.builder.ins().select(right, shifted_right, shifted_left);
                     ctx.encode_value(SteelVal::INT_TAG as _, res)
                 },
-                |ctx, [lhs, rhs]| {
-                    let func = ctx
-                        .builder
-                        .ins()
-                        .iconst(ctx.module.target_config().pointer_type(), function as i64);
-                    let fallback_ip = ctx.i64_const(ctx.ip as i64);
-
-                    let name = CallPrimitiveDefinitions::arity_to_name(2).unwrap();
-                    let res =
-                        ctx.call_function_returns_value_args(name, &[func, fallback_ip, lhs, rhs]);
-                    ctx.check_deopt();
-                    res
-                },
+                |ctx, args| ctx.call_primitive_fallback(function, &args),
                 types::I128,
             )
     }
@@ -11172,6 +11261,22 @@ impl FunctionTranslator<'_> {
                 self.call_helper_unchecked(h, args)
             }
             OperandHelper::Four(h) => {
+                let args = self.pop_operands();
+                self.call_helper_unchecked(h, args)
+            }
+            OperandHelper::Five(h) => {
+                let args = self.pop_operands();
+                self.call_helper_unchecked(h, args)
+            }
+            OperandHelper::Six(h) => {
+                let args = self.pop_operands();
+                self.call_helper_unchecked(h, args)
+            }
+            OperandHelper::Seven(h) => {
+                let args = self.pop_operands();
+                self.call_helper_unchecked(h, args)
+            }
+            OperandHelper::Eight(h) => {
                 let args = self.pop_operands();
                 self.call_helper_unchecked(h, args)
             }

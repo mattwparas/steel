@@ -268,16 +268,21 @@
 (define write-u8 write-byte)
 
 ;;@doc
-;; Writes the contents of a bytevector into an output port.
+;; Writes the bytes of `buf` from `start` up to `end` into an output port, and
+;; returns how many bytes were written.
 ;;
-;; (write-bytes buf [port])
+;; (write-bytes buf [port start end]) -> int?
 ;;
 ;; * buf : bytes?
 ;; * port : output-port? = (current-output-port)
+;; * start : int? = 0
+;; * end : int? = (bytes-length buf)
 (define write-bytes
   (case-lambda
     [(bytes) (#%write-bytes bytes (current-output-port))]
-    [(bytes port) (#%write-bytes bytes port)]))
+    [(bytes port) (#%write-bytes bytes port)]
+    [(bytes port start) (#%write-bytes bytes port start)]
+    [(bytes port start end) (#%write-bytes bytes port start end)]))
 
 ;;@doc
 ;; Alias of `write-bytes`.

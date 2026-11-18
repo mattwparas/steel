@@ -2077,7 +2077,10 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
     fn visit_mutable_vector(&mut self, vector: HeapRef<HeapVec>) -> Self::Output;
     fn visit_boxed_iterator(&mut self, iterator: &'a RwLock<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: &'a Syntax) -> Self::Output;
-    fn visit_boxed_value(&mut self, boxed_value: &'a crate::values::lock::SpinLock<SteelVal>) -> Self::Output;
+    fn visit_boxed_value(
+        &mut self,
+        boxed_value: &'a crate::values::lock::SpinLock<SteelVal>,
+    ) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
     fn visit_pair(&mut self, pair: &'a Pair) -> Self::Output;
 }
@@ -2763,20 +2766,6 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     self.left.visit_closure(l);
                     self.right.visit_closure(r);
-
-                    continue;
-                }
-                (ByteVector(l), ByteVector(r)) => {
-                    if l != r {
-                        return false;
-                    }
-
-                    continue;
-                }
-                (BoxedFunction(l), BoxedFunction(r)) => {
-                    if !Gc::ptr_eq(&l, &r) {
-                        return false;
-                    }
 
                     continue;
                 }

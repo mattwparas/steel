@@ -189,16 +189,31 @@ fn rounding_entry(name: &'static str, target: FunctionSignature, op: RoundOp) ->
     .tail(rounding)
 }
 
+// `bitwise-and` / `-ior` / `-xor` with 2 to 4 operands. The fallback calls the
+// primitive itself.
 fn bitwise_entry(name: &'static str, target: FunctionSignature, op: BitwiseOp) -> PrimitiveInline {
     inline(
         name,
         target as *const (),
-        returns(move |t, _| Some(t.inline_int_bitwise(op, target))),
+        returns(move |t, arity| Some(t.inline_int_bitwise(op, target, arity))),
+    )
+    .operand(bitwise)
+    .tail(bitwise)
+    .guard(|_, arity| (2..=4).contains(&arity))
+    .result(InferredType::Int)
+}
+
+fn arithmetic_shift_entry() -> PrimitiveInline {
+    inline(
+        "arithmetic-shift",
+        arithmetic_shift as *const (),
+        returns(|t, _| Some(t.inline_arithmetic_shift(arithmetic_shift))),
     )
     .arity(2)
     .operand(bitwise)
     .tail(bitwise)
-    .result(InferredType::Int)
+    // The fallback can give a bignum
+    .result(InferredType::Number)
 }
 
 /// Every primitive with an inline lowering.
@@ -596,6 +611,7 @@ pub(super) fn inline_primitives() -> &'static [PrimitiveInline] {
             bitwise_entry("bitwise-and", bitwise_and, BitwiseOp::And),
             bitwise_entry("bitwise-ior", bitwise_ior, BitwiseOp::Ior),
             bitwise_entry("bitwise-xor", bitwise_xor, BitwiseOp::Xor),
+            arithmetic_shift_entry(),
             // Boxes. Mutable struct fields are boxes, so `(#%unbox (getter ...))`
             // and `#%set-box!` are common.
             inline(

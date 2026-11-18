@@ -180,6 +180,96 @@ fn extern_c_add_four(
     }
 }
 
+// `+` of 5 values, folded left like the interpreter's
+#[cross_platform_fn]
+fn extern_c_add_five(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal, d: SteelVal, e: SteelVal) -> SteelVal {
+    match add_two(&a, &b)
+        .and_then(|x| add_two(&x, &c))
+        .and_then(|x| add_two(&x, &d))
+        .and_then(|x| add_two(&x, &e))
+    {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+// `+` of 6 values, folded left like the interpreter's
+#[cross_platform_fn]
+fn extern_c_add_six(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal, d: SteelVal, e: SteelVal, f: SteelVal) -> SteelVal {
+    match add_two(&a, &b)
+        .and_then(|x| add_two(&x, &c))
+        .and_then(|x| add_two(&x, &d))
+        .and_then(|x| add_two(&x, &e))
+        .and_then(|x| add_two(&x, &f))
+    {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+// `+` of 7 values, folded left like the interpreter's
+#[cross_platform_fn]
+fn extern_c_add_seven(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal, d: SteelVal, e: SteelVal, f: SteelVal, g: SteelVal) -> SteelVal {
+    match add_two(&a, &b)
+        .and_then(|x| add_two(&x, &c))
+        .and_then(|x| add_two(&x, &d))
+        .and_then(|x| add_two(&x, &e))
+        .and_then(|x| add_two(&x, &f))
+        .and_then(|x| add_two(&x, &g))
+    {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+// `+` of 8 values, folded left like the interpreter's
+#[cross_platform_fn]
+fn extern_c_add_eight(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal, d: SteelVal, e: SteelVal, f: SteelVal, g: SteelVal, h: SteelVal) -> SteelVal {
+    match add_two(&a, &b)
+        .and_then(|x| add_two(&x, &c))
+        .and_then(|x| add_two(&x, &d))
+        .and_then(|x| add_two(&x, &e))
+        .and_then(|x| add_two(&x, &f))
+        .and_then(|x| add_two(&x, &g))
+        .and_then(|x| add_two(&x, &h))
+    {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
 #[cross_platform_fn]
 fn extern_c_add_two_binop_register(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelVal {
     let ctx = unsafe { &mut *ctx };

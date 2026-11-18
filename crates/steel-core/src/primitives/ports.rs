@@ -4,7 +4,8 @@ use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::primitives::lists::plist_get_impl;
 use crate::rvals::{
-    FromSteelVal, IntoSteelVal, Result, SteelByteVector, SteelString, SteelVal, SteelValDisplay,
+    FromSteelVal, IntoSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal,
+    SteelValDisplay,
 };
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::values::port::{
@@ -949,17 +950,54 @@ pub fn write_byte(byte: u8, port: &SteelPort) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
-/// Writes the contents of a bytevector into an output port.
+/// Writes the bytes of `buf` from `start` up to `end` into an output port, and
+/// returns how many bytes were written.
 ///
-/// (write-bytes buf [port])
+/// (write-bytes buf [port start end]) -> int?
 ///
 /// * buf : bytes?
 /// * port : output-port? = (current-output-port)
-#[function(name = "#%write-bytes", returns = Void, args(ByteVector, Any))]
-pub fn write_bytes(bytes: &SteelByteVector, port: &SteelPort) -> Result<SteelVal> {
-    port.write(&*bytes.vec.read())?;
+/// * start : int? = 0
+/// * end : int? = (bytes-length buf)
+#[function(name = "#%write-bytes", returns = Int, args(ByteVector, Any, rest = Int))]
+pub fn write_bytes(
+    bytes: &SteelByteVector,
+    port: &SteelPort,
+    mut rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    let guard = bytes.vec.read();
+    let length = guard.len();
 
-    Ok(SteelVal::Void)
+    let mut index = |default: usize| -> Result<usize> {
+        match rest.next().transpose()? {
+            None => Ok(default),
+            Some(i) => usize::try_from(i).map_err(|_| {
+                crate::SteelErr::new(
+                    crate::rerrs::ErrorKind::ContractViolation,
+                    format!("write-bytes expects a non-negative index, found {}", i),
+                )
+            }),
+        }
+    };
+
+    let start = index(0)?;
+    let end = index(length)?;
+
+    if let Some(extra) = rest.next() {
+        stop!(ArityMismatch => "write-bytes expects at most 4 arguments, got an additional argument {}", extra?)
+    }
+
+    if start > length {
+        stop!(ContractViolation => "write-bytes: starting index {} is out of range for a bytevector of {} bytes", start, length)
+    }
+
+    if end < start || end > length {
+        stop!(ContractViolation => "write-bytes: ending index {} is out of range [{}, {}] for a bytevector of {} bytes", end, start, length, length)
+    }
+
+    port.write(&guard[start..end])?;
+
+    Ok(SteelVal::IntV((end - start) as isize))
 }
 
 /// Peeks the next byte from an input port.

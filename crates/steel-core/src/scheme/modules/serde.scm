@@ -6,7 +6,11 @@
 
 (define (serialize-to-file value file-path)
   (define as-bytes (~> value serialize-value serialized->bytes))
-  (call-with-output-file file-path (lambda (p) (write-bytes as-bytes p)) #:exists 'truncate))
+  (call-with-output-file file-path
+                         (lambda (p)
+                           (write-bytes as-bytes p)
+                           (void))
+                         #:exists 'truncate))
 
 (define (deserialize-from-file file)
   (call-with-input-file file

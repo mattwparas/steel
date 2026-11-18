@@ -214,7 +214,6 @@ impl DebruijnIndicesInterner {
     ) -> Result<()> {
         // let mut second_pass_defines: HashSet<String> = HashSet::new();
 
-        let mut depth = 0;
         // Only a function body runs after the definitions after it. A let scope runs now.
         let mut closure_depth = 0;
 
@@ -226,28 +225,22 @@ impl DebruijnIndicesInterner {
                     op_code: OpCode::SCLOSURE | OpCode::NEWSCLOSURE | OpCode::PUREFUNC,
                     ..
                 } => {
-                    depth += 1;
                     closure_depth += 1;
                 }
                 Instruction {
                     op_code: OpCode::ECLOSURE,
                     ..
                 } => {
-                    depth -= 1;
                     closure_depth -= 1;
                 }
                 Instruction {
                     op_code: OpCode::BEGINSCOPE,
                     ..
-                } => {
-                    depth += 1;
-                }
+                } => {}
                 Instruction {
                     op_code: OpCode::LETENDSCOPE,
                     ..
-                } => {
-                    depth -= 1;
-                }
+                } => {}
                 Instruction {
                     op_code: OpCode::BIND,
                     contents:
@@ -1644,28 +1637,27 @@ impl Compiler {
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
         // Do this again
-        let mut semantic = match self.steel_site(
-            "anonymous-lets",
-            &mut expanded_statements,
-            |exprs| crate::compiler::passes::analysis::anonymous_calls_to_lets(exprs),
-        )? {
-            None => {
-                let mut semantic =
-                    SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-                semantic.replace_anonymous_function_calls_with_plain_lets();
-                semantic.refresh_variables_if_changed();
-                semantic
-            }
-            // The analysis was of the program before the pass
-            Some(_) => {
-                analysis.fresh_from_exprs(&expanded_statements);
-                analysis.populate_captures(&expanded_statements);
-                let mut semantic =
-                    SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-                semantic.refresh_variables();
-                semantic
-            }
-        };
+        let mut semantic =
+            match self.steel_site("anonymous-lets", &mut expanded_statements, |exprs| {
+                crate::compiler::passes::analysis::anonymous_calls_to_lets(exprs)
+            })? {
+                None => {
+                    let mut semantic =
+                        SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+                    semantic.replace_anonymous_function_calls_with_plain_lets();
+                    semantic.refresh_variables_if_changed();
+                    semantic
+                }
+                // The analysis was of the program before the pass
+                Some(_) => {
+                    analysis.fresh_from_exprs(&expanded_statements);
+                    analysis.populate_captures(&expanded_statements);
+                    let mut semantic =
+                        SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+                    semantic.refresh_variables();
+                    semantic
+                }
+            };
 
         semantic.substitute_known_function_bindings(self.modules());
         // Substituting a lambda into its call sites leaves an applied lambda.
@@ -1838,7 +1830,8 @@ impl Compiler {
                 sites.push(("hoist-car", &hoist_car));
             }
             let kernel = self.kernel.is_some();
-            self.steel_passes.run_sites(kernel, semantic.exprs, &sites)?;
+            self.steel_passes
+                .run_sites(kernel, semantic.exprs, &sites)?;
         }
 
         // Inlining and closure lifting can make a variable captured and mutated

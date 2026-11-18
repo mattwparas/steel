@@ -1,6 +1,5 @@
 use md5::{Digest, Md5};
 
-use crate::gc::ShareableMut;
 use crate::steel_vm::builtin::BuiltInModule;
 
 use crate::rvals::{AsRefMutSteelVal, Custom, IntoSteelVal, Result, SteelByteVector, SteelVal};
@@ -21,11 +20,20 @@ pub fn hashes_module() -> BuiltInModule {
     module
 }
 
+/// Creates a new hasher for MD5 digests.
+///
+/// (md5-hasher) -> hasher?
 #[steel_derive::function(name = "md5-hasher", args(), raises = Never)]
 pub fn md5_hasher() -> SteelVal {
     Md5Hasher(Md5::new()).into_steelval().unwrap()
 }
 
+/// Feeds the bytes of a string (as UTF-8) or a bytevector to the hasher.
+///
+/// (md5-hasher-update! hasher value) -> void?
+///
+/// * hasher : the result of `md5-hasher`
+/// * value : (or/c string? bytes?)
 #[steel_derive::function(
     name = "md5-hasher-update!",
     returns = Void,
@@ -52,6 +60,9 @@ pub fn md5_hasher_update(hasher: &SteelVal, value: &SteelVal) -> Result<SteelVal
     Ok(SteelVal::Void)
 }
 
+/// Returns the 16-byte MD5 digest of everything fed to the hasher, and resets it.
+///
+/// (md5-hasher->bytes hasher) -> bytes?
 #[steel_derive::function(name = "md5-hasher->bytes", returns = ByteVector)]
 pub fn md5_hasher_to_bytes(value: &SteelVal) -> Result<SteelVal> {
     let hash = Md5Hasher::as_mut_ref(value)?.0.finalize_reset();

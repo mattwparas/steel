@@ -2377,20 +2377,47 @@ where
     name = "arithmetic-shift",
     constant = true,
     arity = Exact(2),
-    returns = Int,
-    args(Int, Int),
-    raises = BadArgs
+    returns = Number,
+    // Ints and bignums are accepted, and there is no type for just those
+    args(Number, Int),
+    raises = Maybe
 )]
 pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
-        (SteelVal::IntV(n), SteelVal::IntV(m)) => {
-            if *m >= 0 {
-                Ok(SteelVal::IntV(n << m))
+        (SteelVal::IntV(n), SteelVal::IntV(m)) => Ok(shift_int(*n, *m)),
+        (SteelVal::BigNum(n), SteelVal::IntV(m)) => {
+            let n: &BigInt = n;
+            let shifted = if *m >= 0 {
+                n << m.unsigned_abs()
             } else {
-                Ok(SteelVal::IntV(n >> -m))
-            }
+                // `>>` on a negative BigInt rounds toward negative infinity, like `>>` on ints
+                n >> m.unsigned_abs()
+            };
+            shifted.into_steelval()
         }
         _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
+    }
+}
+
+// `n` shifted by `m` bits, left when `m` is positive. A left shift that doesn't fit an
+// int becomes a bignum, and a right shift past the width leaves only the sign. The jit's
+// inline `arithmetic-shift` takes its fast path only where this gives an int.
+fn shift_int(n: isize, m: isize) -> SteelVal {
+    if m >= 0 {
+        if n == 0 {
+            return SteelVal::IntV(0);
+        }
+        if m < isize::BITS as isize {
+            let shifted = n << m;
+            if shifted >> m == n {
+                return SteelVal::IntV(shifted);
+            }
+        }
+        (BigInt::from(n) << m.unsigned_abs())
+            .into_steelval()
+            .unwrap()
+    } else {
+        SteelVal::IntV(n >> m.unsigned_abs().min(isize::BITS as usize - 1))
     }
 }
 
