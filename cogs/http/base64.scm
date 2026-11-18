@@ -67,7 +67,7 @@
          (loop (cdr chars) (cons value digits) padded))])))
 
 ;;@doc
-;; Decodes base64 into bytes. Padding and whitespace are optional.
+;; Decodes a base64 string into bytes
 (define (base64-decode str)
   (define digits (digits-of str))
   (define out (bytes))
