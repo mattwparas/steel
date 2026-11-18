@@ -571,14 +571,16 @@ in a case insensitive fashion.
  > (string-ci>? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
  ```
 ### **string-contains?**
-Searches a string to check if it contains the second argument.
+Searches a string to check if it contains the second argument, which may be a
+string or a single character.
 
-(string-contains? string? string?) -> bool?
+(string-contains? string? (or/c string? char?)) -> bool?
 
 #### Examples
 ```scheme
 (string-contains? "hello" "lo") ;;=> #t
 (string-contains? "hello" "world") ;;=> #f
+(string-contains? "hello" #\l) ;;=> #t
 ```
 ### **string-downcase**
 Creates a new lowercased version of the input string
@@ -769,12 +771,12 @@ Returns a new string with the leading and trailing whitespace removed.
 ### **trim-end**
 Returns a new string with the trailing whitespace removed.
 
-(trim string?) -> string?
+(trim-end string?) -> string?
 
 #### Examples
 
 ```scheme
-> (trim "   foo     ") ;; => "   foo"
+> (trim-end "   foo     ") ;; => "   foo"
 ```
 ### **trim-end-matches**
 Returns a new string with the given `pat` repeatedly removed from the end
@@ -791,12 +793,12 @@ of the string
 ### **trim-start**
 Returns a new string with the leading whitespace removed.
 
-(trim string?) -> string?
+(trim-start string?) -> string?
 
 #### Examples
 
 ```scheme
-> (trim "   foo     ") ;; => "foo     "
+> (trim-start "   foo     ") ;; => "foo     "
 ```
 ### **trim-start-matches**
 Returns a new string with the given `pat` repeatedly removed from the start

@@ -384,12 +384,17 @@ Converts the bytevector to the equivalent list representation.
 ```scheme
 (bytes->list (bytes 0 1 2 3 4 5)) ;; => '(0 1 2 3 4 5)
 ```
+### **bytes->string/utf-8**
+Alias of `bytes->string/utf8`.
 ### **bytes->string/utf8**
-Decodes a string from a bytevector containing valid UTF-8.
+Decodes a string from a bytevector containing valid UTF-8. It is an error if
+the bytes are not valid UTF-8, unless `err-char` is given as a replacement.
+Reading the same bytes from a port uses the replacement character instead.
 
-(bytes->string/utf8 buf [start] [end]) -> string?
+(bytes->string/utf8 buf [err-char] [start] [end]) -> string?
 
 * buf : bytes?
+* err-char : (or/c char? #f) = #f
 * start: int? = 0
 * end: int? = (bytes-length buf)
 
@@ -435,6 +440,26 @@ Creates a copy of a bytevector.
 
 (bytes-copy vec) ;; => (bytes 1 2 3 4 5)
 (bytes-copy vec 1 3) ;; => (bytes 2 3)
+```
+### **bytes-copy!**
+Copies the bytes of `from` into `to`, starting at index `at`. The two can be the same
+bytevector, and the ranges are allowed to overlap.
+
+(bytevector-copy! to at from [start end])
+
+* to : bytes?
+* at : int?
+* from : bytes?
+* start : int? = 0
+* end : int? = (bytes-length from)
+
+#### Examples
+
+```scheme
+(define vec (bytes 0 1 2 3 4))
+
+(bytevector-copy! vec 1 (bytes 10 20)) ;; vec => (bytes 0 10 20 3 4)
+(bytevector-copy! vec 0 vec 3 5) ;; vec => (bytes 3 4 20 3 4)
 ```
 ### **bytes-length**
 Returns the length of the given byte vector
@@ -513,8 +538,323 @@ integer range from 0 - 255 (inclusive)
 Alias of `bytes-append`.
 ### **bytevector-copy**
 Alias of `bytes-copy`.
+### **bytevector-copy!**
+Alias of `bytes-copy!`.
+### **bytevector-f32-ref**
+Reads a 32-bit floating point number from the bytevector at the given element
+index, interpreting the bytes using the platform's native byte order
+(endianness). The value occupies the 4 bytes starting at offset
+`index * 4`; if that range is out of bounds, this will error.
+
+(bytevector-f32-ref vector index)
+
+* vector : bytes?
+* index : (and exact? int?)
+
+#### Examples
+```scheme
+(define vec (make-bytes 4 0))
+(bytevector-f32-set! vec 0 1.5)
+(bytevector-f32-ref vec 0) ;; => 1.5
+```
+### **bytevector-f32-set!**
+Writes a 32-bit floating point number into the bytevector at the given element
+index, storing the bytes using the platform's native byte order (endianness).
+The value occupies the 4 bytes starting at offset `index * 4`;
+will error if the index is out of bounds.
+
+(bytevector-f32-set! vector index value)
+
+* vector : bytes?
+* index : (and exact? int?)
+* value : real?
+
+#### Examples
+```scheme
+(define vec (make-bytes 4 0))
+(bytevector-f32-set! vec 0 1.5)
+(bytevector-f32-ref vec 0) ;; => 1.5
+```
+### **bytevector-f64-ref**
+Reads a 64-bit floating point number from the bytevector at the given element
+index, interpreting the bytes using the platform's native byte order
+(endianness). The value occupies the 8 bytes starting at offset
+`index * 8`; if that range is out of bounds, this will error.
+
+(bytevector-f64-ref vector index)
+
+* vector : bytes?
+* index : (and exact? int?)
+
+#### Examples
+```scheme
+(define vec (make-bytes 8 0))
+(bytevector-f64-set! vec 0 1.5)
+(bytevector-f64-ref vec 0) ;; => 1.5
+```
+### **bytevector-f64-set!**
+Writes a 64-bit floating point number into the bytevector at the given element
+index, storing the bytes using the platform's native byte order (endianness).
+The value occupies the 8 bytes starting at offset `index * 8`;
+will error if the index is out of bounds.
+
+(bytevector-f64-set! vector index value)
+
+* vector : bytes?
+* index : (and exact? int?)
+* value : real?
+
+#### Examples
+```scheme
+(define vec (make-bytes 8 0))
+(bytevector-f64-set! vec 0 1.5)
+(bytevector-f64-ref vec 0) ;; => 1.5
+```
 ### **bytevector-length**
 Alias of `bytes-length`.
+### **bytevector-s16-ref**
+Reads a 16-bit signed (two's complement) integer from the bytevector at the given element
+index, interpreting the bytes using the platform's native byte order
+(endianness). The value occupies the 2 bytes starting at offset
+`index * 2`; if that range is out of bounds, this will error.
+
+(bytevector-s16-ref vector index)
+
+* vector : bytes?
+* index : (and exact? int?)
+
+#### Examples
+```scheme
+(define vec (make-bytes 2 0))
+(bytevector-s16-set! vec 0 -1000)
+(bytevector-s16-ref vec 0) ;; => -1000
+```
+### **bytevector-s16-set!**
+Writes a 16-bit signed (two's complement) integer into the bytevector at the given element
+index, storing the bytes using the platform's native byte order (endianness).
+The value occupies the 2 bytes starting at offset `index * 2`;
+will error if the index is out of bounds.
+
+(bytevector-s16-set! vector index value)
+
+* vector : bytes?
+* index : (and exact? int?)
+* value : int?
+
+#### Examples
+```scheme
+(define vec (make-bytes 2 0))
+(bytevector-s16-set! vec 0 -1000)
+(bytevector-s16-ref vec 0) ;; => -1000
+```
+### **bytevector-s32-ref**
+Reads a 32-bit signed (two's complement) integer from the bytevector at the given element
+index, interpreting the bytes using the platform's native byte order
+(endianness). The value occupies the 4 bytes starting at offset
+`index * 4`; if that range is out of bounds, this will error.
+
+(bytevector-s32-ref vector index)
+
+* vector : bytes?
+* index : (and exact? int?)
+
+#### Examples
+```scheme
+(define vec (make-bytes 4 0))
+(bytevector-s32-set! vec 0 -100000)
+(bytevector-s32-ref vec 0) ;; => -100000
+```
+### **bytevector-s32-set!**
+Writes a 32-bit signed (two's complement) integer into the bytevector at the given element
+index, storing the bytes using the platform's native byte order (endianness).
+The value occupies the 4 bytes starting at offset `index * 4`;
+will error if the index is out of bounds.
+
+(bytevector-s32-set! vector index value)
+
+* vector : bytes?
+* index : (and exact? int?)
+* value : int?
+
+#### Examples
+```scheme
+(define vec (make-bytes 4 0))
+(bytevector-s32-set! vec 0 -100000)
+(bytevector-s32-ref vec 0) ;; => -100000
+```
+### **bytevector-s64-ref**
+Reads a 64-bit signed (two's complement) integer from the bytevector at the given element
+index, interpreting the bytes using the platform's native byte order
+(endianness). The value occupies the 8 bytes starting at offset
+`index * 8`; if that range is out of bounds, this will error.
+
+(bytevector-s64-ref vector index)
+
+* vector : bytes?
+* index : (and exact? int?)
+
+#### Examples
+```scheme
+(define vec (make-bytes 8 0))
+(bytevector-s64-set! vec 0 -1000000)
+(bytevector-s64-ref vec 0) ;; => -1000000
+```
+### **bytevector-s64-set!**
+Writes a 64-bit signed (two's complement) integer into the bytevector at the given element
+index, storing the bytes using the platform's native byte order (endianness).
+The value occupies the 8 bytes starting at offset `index * 8`;
+will error if the index is out of bounds.
+
+(bytevector-s64-set! vector index value)
+
+* vector : bytes?
+* index : (and exact? int?)
+* value : int?
+
+#### Examples
+```scheme
+(define vec (make-bytes 8 0))
+(bytevector-s64-set! vec 0 -1000000)
+(bytevector-s64-ref vec 0) ;; => -1000000
+```
+### **bytevector-s8-ref**
+Reads an 8-bit signed integer from the bytevector at the
+given index. Unlike the wider variants, the index addresses a single byte
+directly (offset `index`). If the index is out of bounds, this will error.
+
+(bytevector-s8-ref vector index)
+
+* vector : bytes?
+* index : (and exact? int?)
+
+#### Examples
+```scheme
+(define vec (make-bytes 1 0))
+(bytevector-s8-set! vec 0 -100)
+(bytevector-s8-ref vec 0) ;; => -100
+```
+### **bytevector-s8-set!**
+Writes an 8-bit signed integer into the bytevector at the
+given index. Unlike the wider variants, the index addresses a single byte
+directly (offset `index`). Will error if the index is out of bounds.
+
+(bytevector-s8-set! vector index value)
+
+* vector : bytes?
+* index : (and exact? int?)
+* value : int?
+
+#### Examples
+```scheme
+(define vec (make-bytes 1 0))
+(bytevector-s8-set! vec 0 -100)
+(bytevector-s8-ref vec 0) ;; => -100
+```
+### **bytevector-u16-ref**
+Reads a 16-bit unsigned integer from the bytevector at the given element
+index, interpreting the bytes using the platform's native byte order
+(endianness). The value occupies the 2 bytes starting at offset
+`index * 2`; if that range is out of bounds, this will error.
+
+(bytevector-u16-ref vector index)
+
+* vector : bytes?
+* index : (and exact? int?)
+
+#### Examples
+```scheme
+(define vec (make-bytes 2 0))
+(bytevector-u16-set! vec 0 1000)
+(bytevector-u16-ref vec 0) ;; => 1000
+```
+### **bytevector-u16-set!**
+Writes a 16-bit unsigned integer into the bytevector at the given element
+index, storing the bytes using the platform's native byte order (endianness).
+The value occupies the 2 bytes starting at offset `index * 2`;
+will error if the index is out of bounds.
+
+(bytevector-u16-set! vector index value)
+
+* vector : bytes?
+* index : (and exact? int?)
+* value : int?
+
+#### Examples
+```scheme
+(define vec (make-bytes 2 0))
+(bytevector-u16-set! vec 0 1000)
+(bytevector-u16-ref vec 0) ;; => 1000
+```
+### **bytevector-u32-ref**
+Reads a 32-bit unsigned integer from the bytevector at the given element
+index, interpreting the bytes using the platform's native byte order
+(endianness). The value occupies the 4 bytes starting at offset
+`index * 4`; if that range is out of bounds, this will error.
+
+(bytevector-u32-ref vector index)
+
+* vector : bytes?
+* index : (and exact? int?)
+
+#### Examples
+```scheme
+(define vec (make-bytes 4 0))
+(bytevector-u32-set! vec 0 100000)
+(bytevector-u32-ref vec 0) ;; => 100000
+```
+### **bytevector-u32-set!**
+Writes a 32-bit unsigned integer into the bytevector at the given element
+index, storing the bytes using the platform's native byte order (endianness).
+The value occupies the 4 bytes starting at offset `index * 4`;
+will error if the index is out of bounds.
+
+(bytevector-u32-set! vector index value)
+
+* vector : bytes?
+* index : (and exact? int?)
+* value : int?
+
+#### Examples
+```scheme
+(define vec (make-bytes 4 0))
+(bytevector-u32-set! vec 0 100000)
+(bytevector-u32-ref vec 0) ;; => 100000
+```
+### **bytevector-u64-ref**
+Reads a 64-bit unsigned integer from the bytevector at the given element
+index, interpreting the bytes using the platform's native byte order
+(endianness). The value occupies the 8 bytes starting at offset
+`index * 8`; if that range is out of bounds, this will error.
+
+(bytevector-u64-ref vector index)
+
+* vector : bytes?
+* index : (and exact? int?)
+
+#### Examples
+```scheme
+(define vec (make-bytes 8 0))
+(bytevector-u64-set! vec 0 1000000)
+(bytevector-u64-ref vec 0) ;; => 1000000
+```
+### **bytevector-u64-set!**
+Writes a 64-bit unsigned integer into the bytevector at the given element
+index, storing the bytes using the platform's native byte order (endianness).
+The value occupies the 8 bytes starting at offset `index * 8`;
+will error if the index is out of bounds.
+
+(bytevector-u64-set! vector index value)
+
+* vector : bytes?
+* index : (and exact? int?)
+* value : int?
+
+#### Examples
+```scheme
+(define vec (make-bytes 8 0))
+(bytevector-u64-set! vec 0 1000000)
+(bytevector-u64-ref vec 0) ;; => 1000000
+```
 ### **bytevector-u8-ref**
 Alias of `bytes-ref`.
 ### **bytevector-u8-set!**
@@ -839,7 +1179,7 @@ must have been started with the `with-stdin-piped` option for this
 to be available, otherwise stdin will be inherited. This will return
 false if the handle has already been consumed.
 
-(child-stdout subprocess) -> (or input-port? #false)
+(child-stdin subprocess) -> (or output-port? #false)
 
 subprocess : ChildProcess?
 ### **child-stdout**
@@ -951,6 +1291,18 @@ Recursively copies the contents of the source directory to the destination.
 ```scheme
 > (copy-directory-recursively! "logs" "backup") ;;
 ```
+### **copy-file!**
+copies the the source file to the destination.
+
+(copy-file! source destination) -> void?
+
+* source : (string?) - The file to copy.
+* destination : (string?) - The destination to which to copy the file.
+
+#### Examples
+```scheme
+> (copy-file! "logs/today.json" "logs/tomorrow.json") ;;
+```
 ### **cos**
 Returns the cosine value of the input angle, measured in radians.
 
@@ -1038,9 +1390,9 @@ Retrieves the denominator of the given rational number.
 > (denominator 4) ;; => 1
 ```
 ### **disconnected-channel-object?**
-Returns `#t` if the value is an disconnected-channel object.
+Returns `#t` if the value is a disconnected-channel object.
 
-(eof-object? any/c) -> bool?
+(disconnected-channel-object? any/c) -> bool?
 ### **dropping**
 Creates a taking iterator combinator
 
@@ -1539,6 +1891,8 @@ Extracts the contents from a port created with `open-output-bytevector`.
 (get-output-bytevector port?) -> bytes?
 ### **get-output-string**
 Extracts the string contents from a port created with `open-output-string`.
+Bytes written to the port that are not valid UTF-8 read back as the
+replacement character.
 
 (get-output-string port?) -> string?
 ### **get-tls**
@@ -2638,6 +2992,20 @@ error[E08]: Io
 1 │ (open-input-file "foo-bar.txt")
   │  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
 ```
+### **open-input-output-file**
+Takes a filename `path` and returns a port that both reads and writes that file.
+Reads and writes share one position. `exists` is the same as for `open-output-file`,
+except that it defaults to `'can-update`.
+
+(open-input-output-file path [#:exists exists]) -> port?
+
+* path : string?
+* exists : symbol? = 'can-update
+
+#### Examples
+```scheme
+> (open-input-output-file "foo-bar.txt") ;; => #<input-output-port:foo-bar.txt>
+```
 ### **open-input-string**
 Creates an input port from a string, that will return the string contents.
 
@@ -2660,8 +3028,18 @@ These bytes can be recovered calling `get-output-bytevector`.
 ```
 ### **open-output-file**
 Takes a filename `path` referring to a file to be created and returns an output port.
+`exists` controls what happens when the file already exists:
 
-(open-output-file string?) -> output-port?
+* `'error` fails with an error
+* `'truncate` empties the file
+* `'append` writes at the end of the file
+* `'update` keeps the contents and starts at the beginning. It is an error if the file is missing
+* `'can-update` is like `'update`, but creates the file if it is missing
+
+(open-output-file path [#:exists exists]) -> output-port?
+
+* path : string?
+* exists : symbol? = 'error
 
 #### Examples
 ```scheme
@@ -2775,6 +3153,41 @@ Returns the first element of the given vector.
 > (define A (immutable-vector 1 2 3)) ;;
 > (pop-front A) ;; => 1
 ```
+### **port-has-port-position?**
+Returns `#t` if a port can report a position.
+
+(port-has-port-position? port) -> bool?
+
+* port : port?
+### **port-has-set-port-position!?**
+Returns `#t` if a port can be moved to a position.
+
+(port-has-set-port-position!? port) -> bool?
+
+* port : port?
+### **port-position**
+Returns the position of a port, in bytes from the start of the stream. Only
+file ports and string ports have a position. A file opened with
+`#:exists 'append` reports zero until something is written.
+
+(port-position port) -> int?
+
+* port : port?
+### **port-sync!**
+Flushes a port. For a file port, also waits for the os to write the bytes to
+disk.
+
+(port-sync! port) -> void?
+
+* port : output-port?
+### **port-truncate!**
+Sets the length of the file behind an output port. Bytes past `length` are
+dropped. If `length` is past the end, the file is extended with zeros.
+
+(port-truncate! port length) -> void?
+
+* port : output-port?
+* length : int?
 ### **positive?**
 Checks if the given real number is positive.
 
@@ -3112,6 +3525,22 @@ error[E11]: Generic
 1 │ (second '())
   │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
 ```
+### **seek**
+Moves a port and returns the new position. `offset` is relative to `whence`:
+`SEEK_SET` is the start of the stream, `SEEK_CUR` is the current position, and
+`SEEK_END` is the end of the stream.
+
+(seek port offset whence) -> int?
+
+* port : port?
+* offset : int?
+* whence : int?
+
+#### Examples
+```scheme
+> (seek port 0 SEEK_END) ;; => 4096
+> (seek port -16 SEEK_CUR) ;; => 4080
+```
 ### **set-box!**
 Stores a new value inside a box created with `box`, returning the value that
 the box held previously.
@@ -3138,6 +3567,15 @@ stdout, and stderr to pipes. Returns the command builder.
 (set-piped-stdout! process) -> CommandBuilder?
 
 * process : CommandBuilder?
+### **set-port-position!**
+Moves a port to `position` bytes from the start of the stream, or to the end
+if given the eof object. A file opened with `#:exists 'append` always writes
+at the end, regardless of the position.
+
+(set-port-position! port position) -> void?
+
+* port : port?
+* position : (or/c int? eof-object?)
 ### **set-stdout-piped!**
 Configures the command builder so that the spawned child's stdin, stdout, and
 stderr are all connected to pipes, letting the parent process read from and
@@ -3545,14 +3983,16 @@ in a case insensitive fashion.
  > (string-ci>? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
  ```
 ### **string-contains?**
-Searches a string to check if it contains the second argument.
+Searches a string to check if it contains the second argument, which may be a
+string or a single character.
 
-(string-contains? string? string?) -> bool?
+(string-contains? string? (or/c string? char?)) -> bool?
 
 #### Examples
 ```scheme
 (string-contains? "hello" "lo") ;;=> #t
 (string-contains? "hello" "world") ;;=> #f
+(string-contains? "hello" #\l) ;;=> #t
 ```
 ### **string-downcase**
 Creates a new lowercased version of the input string
@@ -3930,12 +4370,12 @@ Returns a new string with the leading and trailing whitespace removed.
 ### **trim-end**
 Returns a new string with the trailing whitespace removed.
 
-(trim string?) -> string?
+(trim-end string?) -> string?
 
 #### Examples
 
 ```scheme
-> (trim "   foo     ") ;; => "   foo"
+> (trim-end "   foo     ") ;; => "   foo"
 ```
 ### **trim-end-matches**
 Returns a new string with the given `pat` repeatedly removed from the end
@@ -3952,12 +4392,12 @@ of the string
 ### **trim-start**
 Returns a new string with the leading whitespace removed.
 
-(trim string?) -> string?
+(trim-start string?) -> string?
 
 #### Examples
 
 ```scheme
-> (trim "   foo     ") ;; => "foo     "
+> (trim-start "   foo     ") ;; => "foo     "
 ```
 ### **trim-start-matches**
 Returns a new string with the given `pat` repeatedly removed from the start
@@ -4488,7 +4928,7 @@ Constructs a pipe to be arranged to connect to stdout.
 ### **without-env-var**
 Removes an environment variable for the child.
 
-(with-env-var process key) -> CommandBuilder?
+(without-env-var process key) -> CommandBuilder?
 
 * process - CommandBuilder?
 * key - string?
@@ -4501,10 +4941,15 @@ Removes an environment variable for the child.
       unwrap-ok
       wait)
 ```
-### **would-block-object?**
-Returns `#t` if the value is an EOF object.
+### **would-block**
+Returns a would-block object. This is what the `*` readers return when a
+port has nothing ready to read.
 
-(eof-object? any/c) -> bool?
+(would-block) -> would-block-object?
+### **would-block-object?**
+Returns `#t` if the value is a would-block object.
+
+(would-block-object? any/c) -> bool?
 ### **zero?**
 Checks if the given real number is zero.
 
@@ -4546,6 +4991,9 @@ Create a zipping iterator
 ### **Ok**
 ### **Ok->value**
 ### **Ok?**
+### **SEEK_CUR**
+### **SEEK_END**
+### **SEEK_SET**
 ### **Some**
 ### **Some->value**
 ### **Some?**
@@ -4672,5 +5120,4 @@ Create a zipping iterator
 ### **value->string**
 ### **will-execute**
 ### **will-register**
-### **would-block**
 ### **write-line!**

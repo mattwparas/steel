@@ -1,0 +1,29 @@
+[package]
+name = "steel-parser-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+afl = "0.15"
+steel-parser = { path = ".." }
+
+[profile.release]
+debug-assertions = true
+overflow-checks = true
+panic = "abort"
+debug = 1
+
+[[bin]]
+name = "parse"
+path = "src/bin/parse.rs"
+
+[[bin]]
+name = "chunked"
+path = "src/bin/chunked.rs"
+
+[[bin]]
+name = "lex"
+path = "src/bin/lex.rs"

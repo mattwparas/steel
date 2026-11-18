@@ -1,4 +1,5 @@
 use crate::ast::*;
+use alloc::boxed::Box;
 
 use crate::ast::{
     Atom, Begin, Define, If, LambdaFunction, Let, List, Macro, Quote, Require, Return, Set,

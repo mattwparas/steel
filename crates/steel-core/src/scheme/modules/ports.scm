@@ -2,10 +2,15 @@
 (require "#%private/steel/control")
 
 (provide read-port-to-string
+         read-port-to-string*
          port->string
+         port->string*
          read-port-to-bytes
+         read-port-to-bytes*
          port->bytes
+         port->bytes*
          read-line
+         read-line*
          read-byte
          read-u8
          peek-byte
@@ -29,37 +34,121 @@
          call-with-output-string
          call-with-input-string
          with-output-to-string
-         with-input-from-string)
+         with-input-from-string
+         file-position
+         file-position*
+         file-truncate
+         ftell
+         fsync)
+
+;;@doc
+;; Returns the position of a port, or sets it when given `position`.
+;;
+;; (file-position port [position]) -> (or/c int? void?)
+;;
+;; * port : port?
+;; * position : (or/c int? eof-object?)
+(define file-position
+  (case-lambda
+    [(port) (port-position port)]
+    [(port position) (set-port-position! port position)]))
+
+;;@doc
+;; Returns the position of a port, or `#f` for a port that has no position.
+;;
+;; (file-position* port) -> (or/c int? #f)
+;;
+;; * port : port?
+(define (file-position* port)
+  (and (port-has-port-position? port) (port-position port)))
+
+;;@doc
+;; Sets the length of the file behind an output port.
+;;
+;; (file-truncate port length) -> void?
+;;
+;; * port : output-port?
+;; * length : int?
+(define (file-truncate port length)
+  (port-truncate! port length))
+
+;;@doc
+;; Returns the position of a port.
+;;
+;; (ftell port) -> int?
+;;
+;; * port : port?
+(define (ftell port)
+  (port-position port))
+
+;;@doc
+;; Flushes a port. For a file port, also waits for the os to write the bytes to disk.
+;;
+;; (fsync port) -> void?
+;;
+;; * port : output-port?
+(define (fsync port)
+  (port-sync! port))
 
 ;;@doc
 ;; Reads the entire content of an input port into a string.
 ;;
 ;; (read-port-to-string [port]) -> string?
 ;;
-;; * [port] : input-port? = (current-input-port)
+;; * port : input-port? = (current-input-port)
 (define read-port-to-string
   (case-lambda
     [() (#%read-port-to-string (current-input-port))]
     [(port) (#%read-port-to-string port)]))
 
 ;;@doc
+;; Reads the entire content of an input port into a string, without waiting.
+;;
+;; (read-port-to-string* [port]) -> (or string? would-block-object?)
+;;
+;; * port : input-port? = (current-input-port)
+(define read-port-to-string*
+  (case-lambda
+    [() (#%read-port-to-string* (current-input-port))]
+    [(port) (#%read-port-to-string* port)]))
+
+;;@doc
 ;; Alias of `read-port-to-string`.
 (define port->string read-port-to-string)
+
+;;@doc
+;; Alias of `read-port-to-string*`.
+(define port->string* read-port-to-string*)
 
 ;;@doc
 ;; Reads the entire content of an input port into a byte vector.
 ;;
 ;; (read-port-to-bytes [port]) -> string?
 ;;
-;; * [port] : input-port? = (current-input-port)
+;; * port : input-port? = (current-input-port)
 (define read-port-to-bytes
   (case-lambda
     [() (#%read-port-to-bytes (current-input-port))]
     [(port) (#%read-port-to-bytes port)]))
 
 ;;@doc
+;; Reads the entire content of an input port into a byte vector, without waiting.
+;;
+;; (read-port-to-bytes* [port]) -> (or bytes? would-block-object?)
+;;
+;; * port : input-port? = (current-input-port)
+(define read-port-to-bytes*
+  (case-lambda
+    [() (#%read-port-to-bytes* (current-input-port))]
+    [(port) (#%read-port-to-bytes* port)]))
+
+;;@doc
 ;; Alias of `read-port-to-bytes`.
 (define port->bytes read-port-to-bytes)
+
+;;@doc
+;; Alias of `read-port-to-bytes*`.
+(define port->bytes* read-port-to-bytes*)
 
 ;;@doc
 ;; Reads a line from an input port.
@@ -71,6 +160,17 @@
   (case-lambda
     [() (#%read-line (current-input-port))]
     [(port) (#%read-line port)]))
+
+;;@doc
+;; Reads a line from an input port, without waiting.
+;;
+;; (read-line* [port]) -> (or string? would-block-object?)
+;;
+;; * port : input-port? = (current-input-port)
+(define read-line*
+  (case-lambda
+    [() (#%read-line* (current-input-port))]
+    [(port) (#%read-line* port)]))
 
 ;;@doc
 ;; Reads a single byte from an input port.

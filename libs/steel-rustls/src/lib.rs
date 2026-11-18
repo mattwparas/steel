@@ -5,6 +5,7 @@ use steel::{
 };
 
 use std::sync::Mutex;
+use std::time::Duration;
 use std::{io::Cursor, sync::Arc};
 
 use rustls::RootCertStore;
@@ -37,7 +38,12 @@ impl RustlsClientConnection {
         let root_store = RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.into(),
         };
-        let mut config = rustls::ClientConfig::builder()
+        // ClientConfig::builder panics if both rustls providers are enabled, and
+        // ureq does
+        let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        let mut config = rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
@@ -74,10 +80,18 @@ impl Clone for RustlsTcpStream {
     }
 }
 
-#[allow(unused)]
-#[derive(Debug)]
 enum RustlsError {
     Io(std::io::Error),
+    Argument(String),
+}
+
+impl std::fmt::Debug for RustlsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RustlsError::Io(err) => write!(f, "rustls: {}", err),
+            RustlsError::Argument(message) => write!(f, "{}", message),
+        }
+    }
 }
 
 impl std::fmt::Display for RustlsError {
@@ -94,6 +108,24 @@ fn connect(addr: &str) -> Result<RustlsTcpStream, RustlsError> {
     TcpStream::connect(addr)
         .map(RustlsTcpStream)
         .map_err(RustlsError::Io)
+}
+
+fn set_read_timeout(stream: &mut RustlsTcpStream, ms: Option<isize>) -> Result<(), RustlsError> {
+    stream
+        .0
+        .set_read_timeout(read_timeout(ms)?)
+        .map_err(RustlsError::Io)
+}
+
+fn read_timeout(ms: Option<isize>) -> Result<Option<Duration>, RustlsError> {
+    match ms {
+        None => Ok(None),
+        Some(ms) if ms > 0 => Ok(Some(Duration::from_millis(ms as u64))),
+        Some(ms) => Err(RustlsError::Argument(format!(
+            "tcp-set-read-timeout!: expected a positive number of milliseconds, found {}",
+            ms
+        ))),
+    }
 }
 
 fn tcp_reader(stream: &RustlsTcpStream) -> DynReader {
@@ -131,6 +163,7 @@ pub fn build_module() -> FFIModule {
 
     module
         .register_fn("tcp-connect", connect)
+        .register_fn("tcp-set-read-timeout!", set_read_timeout)
         .register_fn("tcp-reader", tcp_reader)
         .register_fn("tcp-writer", tcp_writer)
         .register_fn("client-connection", RustlsClientConnection::new)
@@ -140,4 +173,39 @@ pub fn build_module() -> FFIModule {
         .register_fn("gz-decode", gz_decoder);
 
     module
+}
+
+#[cfg(test)]
+mod rustls_tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    fn connected() -> (RustlsTcpStream, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+
+        (RustlsTcpStream(server), client)
+    }
+
+    #[test]
+    fn false_timeout_waits_forever() {
+        let (mut stream, _client) = connected();
+
+        set_read_timeout(&mut stream, Some(250)).unwrap();
+        set_read_timeout(&mut stream, None).unwrap();
+
+        assert_eq!(stream.0.read_timeout().unwrap(), None);
+    }
+
+    #[test]
+    fn zero_timeout_errors() {
+        let (mut stream, _client) = connected();
+
+        for ms in [0, -1] {
+            assert!(set_read_timeout(&mut stream, Some(ms)).is_err());
+        }
+
+        assert_eq!(stream.0.read_timeout().unwrap(), None);
+    }
 }

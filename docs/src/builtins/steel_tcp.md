@@ -1,4 +1,21 @@
 # steel/tcp
+### **tcp-abandon-port**
+Closes the output side of a tcp port, like `close-output-port`, but without
+telling the other end. The other end does not see the end of the stream
+until the connection itself is shut down or dropped.
+
+(tcp-abandon-port port) -> void?
+
+* port : port? - a port from `tcp-stream-reader`
+
+#### Examples
+
+```scheme
+(define stream (tcp-connect "127.0.0.1:8080"))
+(define port (tcp-stream-reader stream))
+(tcp-abandon-port port)
+(output-port? port) ;; => #false
+```
 ### **tcp-accept**
 Accept a new incoming connection from this listener.
 
@@ -25,7 +42,7 @@ returned with the remote address in a pair
 ```scheme
 (define listener (tcp-listen "127.0.0.1:8080"))
 
-(tcp-accept listener) ;; => (cons TcpStream? string?)
+(tcp-accept-with-addr listener) ;; => (cons TcpStream? string?)
 ```
 ### **tcp-connect**
 Opens a TCP connection to a remote host.
@@ -70,6 +87,14 @@ Creates a TCP listener bound to `127.0.0.1:80`:
 ```scheme
 (tcp-listen "127.0.0.1:80")
 ```
+### **tcp-listener-local-addr**
+Returns the local socket address of this listener.
+
+```scheme
+(tcp-listener-local-addr listener) -> string?
+```
+
+listener : TcpListener?
 ### **tcp-listener-set-non-blocking!**
 Puts the given TCP listener into non-blocking mode. Once set, `tcp-accept`
 will return immediately rather than waiting when no connection is pending.
@@ -115,6 +140,25 @@ on the stream return immediately rather than waiting when they would block.
 (tcp-stream-set-non-blocking! stream) -> void?
 
 * stream : tcp-stream?
+### **tcp-stream-set-read-timeout!**
+Sets how long a read on the given TCP stream will wait for bytes before
+giving up. Once set, a read that reaches the deadline behaves like a read on
+a non-blocking stream: the `*` readers will return a would-block object, the
+normal (non *) readers will return an error, and bytes that arrived before the deadline are
+kept.
+
+(tcp-stream-set-read-timeout! stream ms) -> void?
+
+* stream : tcp-stream?
+* ms : (or/c int? #f) - milliseconds to wait, or `#f` to wait forever
+
+#### Examples
+
+```scheme
+(define stream (tcp-connect "127.0.0.1:8080"))
+(tcp-stream-set-read-timeout! stream 5000)
+(read-line* (tcp-stream-reader stream)) ;; => a line, or a would-block object
+```
 ### **tcp-stream-writer**
 Get the writer half of this tcp stream as a port.
 

@@ -2,6 +2,7 @@ use steel_derive::function;
 
 use crate::{
     gc::shared::ShareableMut,
+    gc::Gc,
     rerrs::ErrorKind,
     rvals::{FromSteelVal, IntoSteelVal, RestArgsIter, Result, SteelByteVector},
     steel_vm::builtin::BuiltInModule,
@@ -17,6 +18,7 @@ pub fn bytevector_module() -> BuiltInModule {
         .register_native_fn_definition(BYTES_DEFINITION)
         .register_native_fn_definition(IS_BYTES_DEFINITION)
         .register_native_fn_definition(BYTEVECTOR_COPY_NEW_DEFINITION)
+        .register_native_fn_definition(BYTEVECTOR_COPY_INTO_DEFINITION)
         .register_native_fn_definition(MAKE_BYTES_DEFINITION)
         .register_native_fn_definition(IS_BYTE_DEFINITION)
         .register_native_fn_definition(BYTES_LENGTH_DEFINITION)
@@ -178,6 +180,93 @@ pub fn bytevector_copy_new(
         .ok_or_else(throw!(Generic => "index out of bounds: attempted to slice range: {:?} for bytevector: {:?}", start..end, guard))?.to_vec();
 
     Ok(SteelVal::ByteVector(SteelByteVector::new(copy)))
+}
+
+fn copy_range(
+    rest: &mut RestArgsIter<'_, isize>,
+    length: usize,
+) -> Result<core::ops::Range<usize>> {
+    let mut index = |fallback: usize| -> Result<usize> {
+        let Some(value) = rest.next() else {
+            return Ok(fallback);
+        };
+
+        let value = value?;
+
+        value.try_into().map_err(|_err| {
+            SteelErr::new(
+                ErrorKind::ConversionError,
+                format!("Unable to convert isize to usize for indexing: {}", value),
+            )
+        })
+    };
+
+    let start = index(0)?;
+    let end = index(length)?;
+
+    if let Some(extra) = rest.next() {
+        stop!(ArityMismatch => format!("bytevector-copy! expected 3 to 5 arguments, got an additional argument {}", extra?))
+    }
+
+    if start > end || end > length {
+        stop!(Generic => "index out of bounds: attempted to slice range: {:?} of a bytevector of {} bytes", start..end, length);
+    }
+
+    Ok(start..end)
+}
+
+/// Copies the bytes of `from` into `to`, starting at index `at`. The two can be the same
+/// bytevector, and the ranges are allowed to overlap.
+///
+/// (bytevector-copy! to at from [start end])
+///
+/// * to : bytes?
+/// * at : int?
+/// * from : bytes?
+/// * start : int? = 0
+/// * end : int? = (bytes-length from)
+///
+/// # Examples
+///
+/// ```scheme
+/// (define vec (bytes 0 1 2 3 4))
+///
+/// (bytevector-copy! vec 1 (bytes 10 20)) ;; vec => (bytes 0 10 20 3 4)
+/// (bytevector-copy! vec 0 vec 3 5) ;; vec => (bytes 3 4 20 3 4)
+/// ```
+#[function(name = "bytes-copy!", alias = "bytevector-copy!")]
+pub fn bytevector_copy_into(
+    to: &SteelByteVector,
+    at: usize,
+    from: &SteelByteVector,
+    mut rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    // Reading and writing the same bytevector would take the same lock twice
+    if Gc::ptr_eq(&to.vec, &from.vec) {
+        let mut guard = to.vec.write();
+        let range = copy_range(&mut rest, guard.len())?;
+        fits(at, range.len(), guard.len())?;
+        guard.copy_within(range, at);
+
+        return Ok(SteelVal::Void);
+    }
+
+    let source = from.vec.read();
+    let range = copy_range(&mut rest, source.len())?;
+    let mut guard = to.vec.write();
+    fits(at, range.len(), guard.len())?;
+    guard[at..at + range.len()].copy_from_slice(&source[range]);
+
+    Ok(SteelVal::Void)
+}
+
+fn fits(at: usize, amount: usize, length: usize) -> Result<()> {
+    match at.checked_add(amount) {
+        Some(end) if end <= length => Ok(()),
+        _ => {
+            stop!(Generic => "index out of bounds: {} bytes do not fit at index {} of a bytevector of {} bytes", amount, at, length)
+        }
+    }
 }
 
 /// Creates a bytevector given a length and a default value.
@@ -388,11 +477,36 @@ pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<Stee
     Ok(SteelVal::ByteVector(SteelByteVector::new(vector)))
 }
 
-/// Decodes a string from a bytevector containing valid UTF-8.
+fn decode_with(bytes: &[u8], on_error: char) -> String {
+    let mut decoded = String::with_capacity(bytes.len());
+    let mut rest = bytes;
+
+    loop {
+        let err = match core::str::from_utf8(rest) {
+            Ok(str) => {
+                decoded.push_str(str);
+
+                return decoded;
+            }
+            Err(err) => err,
+        };
+
+        let valid = err.valid_up_to();
+        decoded.push_str(core::str::from_utf8(&rest[..valid]).unwrap());
+        decoded.push(on_error);
+
+        rest = &rest[valid + err.error_len().unwrap_or(rest.len() - valid)..];
+    }
+}
+
+/// Decodes a string from a bytevector containing valid UTF-8. It is an error if
+/// the bytes are not valid UTF-8, unless `err-char` is given as a replacement.
+/// Reading the same bytes from a port uses the replacement character instead.
 ///
-/// (bytes->string/utf8 buf [start] [end]) -> string?
+/// (bytes->string/utf8 buf [err-char] [start] [end]) -> string?
 ///
 /// * buf : bytes?
+/// * err-char : (or/c char? #f) = #f
 /// * start: int? = 0
 /// * end: int? = (bytes-length buf)
 ///
@@ -400,40 +514,60 @@ pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<Stee
 /// ```scheme
 /// (bytes->string/utf8 (bytes #xe5 #x8d #x83 #xe8 #x91 #x89)) ;; => "千葉"
 /// ```
-#[function(name = "bytes->string/utf8", alias = "utf8->string")]
+#[function(
+    name = "bytes->string/utf8",
+    alias = "utf8->string,bytes->string/utf-8"
+)]
 pub fn bytes_to_string(
     value: &SteelByteVector,
-    mut rest: RestArgsIter<'_, isize>,
+    rest: RestArgsIter<'_, &SteelVal>,
 ) -> Result<SteelVal> {
-    let borrowed = value.vec.read();
+    let args = rest.collect::<Result<Vec<_>>>()?;
 
-    let start = rest.next().transpose()?.unwrap_or(0);
-    let end = rest.next().transpose()?.unwrap_or(borrowed.len() as isize);
-
-    if rest.next().is_some() {
-        stop!(ArityMismatch => "expected at most 3 arguments");
-    }
-
-    if start < 0 {
-        stop!(ContractViolation => "start should be a positive number, got {}", start);
-    }
-
-    if end < 0 {
-        stop!(ContractViolation => "end should be a positive number, got {}", end);
-    }
-
-    if end < start {
-        stop!(ContractViolation => "start should be smaller than end, got {} and {}", start, end);
-    }
-
-    let start = start as usize;
-    let end = end as usize;
-
-    let Ok(s) = core::str::from_utf8(&(&*borrowed)[start..end]) else {
-        stop!(ConversionError => "bytevector contains malformed UTF-8")
+    let given = match args.first().copied() {
+        Some(SteelVal::CharV(c)) => Some(Some(*c)),
+        Some(SteelVal::BoolV(false)) => Some(None),
+        _ => None,
     };
 
-    Ok(s.to_string().into())
+    let (on_error, args) = match given {
+        Some(on_error) => (on_error, &args[1..]),
+        None => (None, &args[..]),
+    };
+
+    if args.len() > 2 {
+        stop!(ArityMismatch => "expected at most 4 arguments");
+    }
+
+    let borrowed = value.vec.read();
+
+    let index = |at: usize, fallback: usize| -> Result<usize> {
+        let Some(value) = args.get(at) else {
+            return Ok(fallback);
+        };
+
+        let value = isize::from_steelval(value)?;
+
+        value.try_into().map_err(|_err| {
+            SteelErr::new(
+                ErrorKind::ConversionError,
+                format!("Unable to convert isize to usize for indexing: {}", value),
+            )
+        })
+    };
+
+    let start = index(0, 0)?;
+    let end = index(1, borrowed.len())?;
+
+    let Some(bytes) = borrowed.get(start..end) else {
+        stop!(Generic => "index out of bounds: attempted to slice range: {:?} of a bytevector of {} bytes", start..end, borrowed.len());
+    };
+
+    match (core::str::from_utf8(bytes), on_error) {
+        (Ok(str), _) => Ok(str.to_string().into()),
+        (Err(_), Some(on_error)) => Ok(decode_with(bytes, on_error).into()),
+        (Err(_), None) => stop!(ConversionError => "bytevector contains malformed UTF-8"),
+    }
 }
 
 // The doc comments need the element width as a literal unfortunately

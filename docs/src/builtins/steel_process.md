@@ -14,7 +14,7 @@ must have been started with the `with-stdin-piped` option for this
 to be available, otherwise stdin will be inherited. This will return
 false if the handle has already been consumed.
 
-(child-stdout subprocess) -> (or input-port? #false)
+(child-stdin subprocess) -> (or output-port? #false)
 
 subprocess : ChildProcess?
 ### **child-stdout**
@@ -274,7 +274,7 @@ Constructs a pipe to be arranged to connect to stdout.
 ### **without-env-var**
 Removes an environment variable for the child.
 
-(with-env-var process key) -> CommandBuilder?
+(without-env-var process key) -> CommandBuilder?
 
 * process - CommandBuilder?
 * key - string?
