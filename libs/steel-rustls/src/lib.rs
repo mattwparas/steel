@@ -39,7 +39,7 @@ impl RustlsClientConnection {
             roots: webpki_roots::TLS_SERVER_ROOTS.into(),
         };
         // ClientConfig::builder panics if both rustls providers are enabled, and
-        // another crate in the build can enable the second one (ureq does)
+        // ureq does
         let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
         let mut config = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
