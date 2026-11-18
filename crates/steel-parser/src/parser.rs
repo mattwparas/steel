@@ -533,7 +533,9 @@ impl<'a> Parser<'a> {
         }
 
         parser.incremental = true;
-        // The @doc desugar can turn one datum into two expressions
+        // Note: The @doc desugar can turn one datum into two expressions, which is a bit goofy.
+        // When reader macros are added, we can move the doc comments into that and delete
+        // the additional complexity here.
         parser.collect_doc_comments = false;
         parser.more_to_come = more_to_come;
         parser.input_len = input.len() as u32;
