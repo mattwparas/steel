@@ -183,6 +183,7 @@ test_harness_success! {
     transducer_over_streams,
     tree_traversal,
     trie_sort,
+    with_handler_reraise,
     y_combinator,
 }
 

@@ -1225,25 +1225,31 @@
 (define-syntax with-handler
   (syntax-rules ()
     [(with-handler handler expr)
-     (reset (call-with-exception-handler (lambda (err)
-                                           (define res (handler err))
-                                           ; (shift k (k void))
+     (reset (let ([mc (get-tls *meta-continuation*)])
+              (call-with-exception-handler (lambda (err)
+                                             ;; A raise can abandon resets nested in expr,
+                                             ;; leaving their meta-continuations installed.
+                                             (set-tls! *meta-continuation* mc)
+                                             (define res (handler err))
+                                             ; (shift k (k void))
 
-                                           ; (shift *meta-continuation* (*meta-continuation* void)))
-                                           (shift *meta-continuation*
-                                                  ; ((get-tls *meta-continuation*) void)))
-                                                  (*meta-continuation* res)))
-                                         (lambda () expr)))]
+                                             ; (shift *meta-continuation* (*meta-continuation* void)))
+                                             (shift *meta-continuation*
+                                                    ; ((get-tls *meta-continuation*) void)))
+                                                    (*meta-continuation* res)))
+                                           (lambda () expr))))]
     [(with-handler handler expr ...)
-     (reset (call-with-exception-handler (lambda (err)
-                                           (define res (handler err))
-                                           ; (shift k (k void))
-                                           ; (shift *meta-continuation* (*meta-continuation* void)))
-                                           (shift *meta-continuation*
-                                                  ; ((get-tls *meta-continuation*) void)))
-                                                  (*meta-continuation* res)))
-                                         (lambda ()
-                                           expr ...)))]))
+     (reset (let ([mc (get-tls *meta-continuation*)])
+              (call-with-exception-handler (lambda (err)
+                                             (set-tls! *meta-continuation* mc)
+                                             (define res (handler err))
+                                             ; (shift k (k void))
+                                             ; (shift *meta-continuation* (*meta-continuation* void)))
+                                             (shift *meta-continuation*
+                                                    ; ((get-tls *meta-continuation*) void)))
+                                                    (*meta-continuation* res)))
+                                           (lambda ()
+                                             expr ...))))]))
 
 (define-syntax case-lambda
   (syntax-rules ()
