@@ -593,6 +593,21 @@ impl ByteCodeLambda {
         }
     }
 
+    /// The same function as a new object that has never run: no compiled entry,
+    /// and its own contract slot. It shares the body, which the jit copies before
+    /// patching (see `jit_compile_lambda_impl`).
+    pub(crate) fn fresh_copy(&self) -> Self {
+        let mut copy = ByteCodeLambda::new(
+            self.id,
+            self.body_exp.clone(),
+            self.arity as usize,
+            self.is_multi_arity,
+            self.captures.clone(),
+        );
+        copy.header = self.header;
+        copy
+    }
+
     pub fn from_prototype(proto: &Self, captures: CaptureVec) -> Self {
         Self {
             id: proto.id,

@@ -22,6 +22,10 @@ impl Serialize for InternedString {
     where
         S: serde::Serializer,
     {
+        #[cfg(feature = "std")]
+        if let Some(index) = crate::tables::write_string(*self) {
+            return index.serialize(serializer);
+        }
         self.resolve().serialize(serializer)
     }
 }
@@ -31,6 +35,12 @@ impl<'de> Deserialize<'de> for InternedString {
     where
         D: serde::Deserializer<'de>,
     {
+        #[cfg(feature = "std")]
+        if crate::tables::reading_strings() {
+            let index = u32::deserialize(deserializer)?;
+            return crate::tables::read_string(index)
+                .ok_or_else(|| serde::de::Error::custom("a string not in the table"));
+        }
         let key = <&str>::deserialize(deserializer)?;
 
         Ok(InternedString::from(key))

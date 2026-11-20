@@ -164,7 +164,7 @@ fn jit_compile_lambda_impl(
         }
     }
 
-    let name = func.id.to_string();
+    let name = crate::jit2::cgen::jit_name(func.id, ctx.thread.global_env.id);
 
     let instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
 
@@ -617,7 +617,7 @@ pub(crate) fn jit_compile_received(
     });
 
     let mut job = BackgroundJob {
-        name: lambda.id.to_string(),
+        name: crate::jit2::cgen::jit_name(lambda.id, ctx.thread.global_env.id),
         arity: lambda.arity,
         maybe_index: own_index,
         fn_ptr_name,
@@ -675,7 +675,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                 if Gc::ptr_eq(func, f) {
                     let mut func = func.unwrap();
 
-                    let name = func.id.to_string();
+                    let name = crate::jit2::cgen::jit_name(func.id, ctx.thread.global_env.id);
 
                     let closed_globals = closed_globals(ctx);
                     let compiled = ctx
@@ -752,7 +752,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
     if let SteelVal::Closure(func) = function {
         let mut func = func.unwrap();
 
-        let name = func.id.to_string();
+        let name = crate::jit2::cgen::jit_name(func.id, ctx.thread.global_env.id);
 
         let closed_globals = closed_globals(ctx);
         let compiled = ctx

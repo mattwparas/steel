@@ -100,7 +100,7 @@ struct Transformers {
 
 // The code that builds a module's transformer environment. Each module that uses its macros
 // gets its own instance built from this, as in Racket.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 struct Phase1Program {
     // Code of the modules it requires for syntax. Each instance runs it again under its own
     // names for those modules' prefixes.
@@ -132,7 +132,7 @@ impl Drop for Phase1Program {
 }
 
 // A binding that a module's transformer code imports
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Phase1Import {
     // The name in the importing module
     pub(crate) local: InternedString,
@@ -1370,12 +1370,138 @@ pub struct Kernel {
     phase1_procedural: FxHashMap<String, FxHashMap<InternedString, (String, InternedString)>>,
 }
 
+thread_local! {
+    // Set while a boot image is made: kernels made then record what their engine
+    // is made to do (`Engine::recording`)
+    static RECORD_KERNEL_ENGINE: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Runs `f` with kernels made in it recording what their engine does
+pub(crate) fn recording_kernels<T>(f: impl FnOnce() -> T) -> T {
+    let was = RECORD_KERNEL_ENGINE.with(|x| x.replace(true));
+    let result = f();
+    RECORD_KERNEL_ENGINE.with(|x| x.set(was));
+    result
+}
+
+/// Registers the transformer functions in `engine` over new, empty tables
+#[cfg(test)]
+pub(crate) fn register_fresh_transformer_functions(engine: &mut Engine) {
+    let transformers = Transformers {
+        set: Arc::new(RwLock::new(HashMap::default())),
+        names: Arc::new(RwLock::new(FxHashSet::default())),
+        set_transformers: Arc::new(RwLock::new(FxHashSet::default())),
+        phase1: Arc::new(RwLock::new(FxHashMap::default())),
+        programs: Arc::new(RwLock::new(FxHashMap::default())),
+    };
+    register_transformer_functions(engine, &transformers);
+}
+
+// The names `register_transformer_functions` registers
+const TRANSFORMER_FUNCTIONS: [&str; 5] = [
+    "#%record-phase1-transformer!",
+    "#%phase1-environment",
+    "register-macro-transformer!",
+    "#%register-set!-transformer!",
+    "current-macro-transformers!",
+];
+
+// The functions transformer code uses to reach the kernel's transformer tables.
+// They hold the tables, so a copy of the kernel's engine registers them again for
+// its own copy of the tables.
+fn register_transformer_functions(engine: &mut Engine, transformers: &Transformers) {
+    // Records a module's syntax-case macro for the instances other modules get
+    let embedded_transformer_object = transformers.clone();
+    engine.register_fn(
+        "#%record-phase1-transformer!",
+        move |env: String, name: SteelVal, matcher: String, body: SteelVal| -> Result<()> {
+            if let Some(program) = embedded_transformer_object
+                .programs
+                .write()
+                .unwrap()
+                .get_mut(&env)
+            {
+                if let SteelVal::SymbolV(name) = name {
+                    let body = TryFromSteelValVisitorForExprKind::root_quoted(&body)?;
+                    program
+                        .transformers
+                        .push((name.as_str().into(), matcher, body));
+                }
+            }
+
+            Ok(())
+        },
+    );
+
+    // Code with no file, or in a program's file, keeps its transformers in the top level
+    let embedded_transformer_object = transformers.clone();
+    engine.register_fn("#%phase1-environment", move |env: String| -> String {
+        let phase1 = embedded_transformer_object.phase1.read().unwrap();
+
+        if env != "default" && phase1.contains_key(&env) {
+            env
+        } else {
+            "top-level".to_string()
+        }
+    });
+
+    let embedded_transformer_object = transformers.clone();
+    engine.register_fn(
+        "register-macro-transformer!",
+        move |name: String, env: String| {
+            let name: InternedString = name.as_str().into();
+            crate::parser::expand_visitor::registered_procedural(name);
+            embedded_transformer_object
+                .names
+                .write()
+                .unwrap()
+                .insert(name);
+            embedded_transformer_object
+                .set
+                .write()
+                .unwrap()
+                .entry(env)
+                .or_default()
+                .insert(name)
+        },
+    );
+
+    let embedded_transformer_object = transformers.clone();
+    engine.register_fn("#%register-set!-transformer!", move |name: String| {
+        embedded_transformer_object
+            .set_transformers
+            .write()
+            .unwrap()
+            .insert(name.as_str().into());
+    });
+
+    let embedded_transformer_object = transformers.clone();
+    engine.register_fn(
+        "current-macro-transformers!",
+        move |env: SteelString| -> SteelVal {
+            embedded_transformer_object
+                .set
+                .read()
+                .unwrap()
+                .get(env.as_str())
+                .map(|set| {
+                    set.iter()
+                        .map(|x| x.resolve().to_string())
+                        .map(|x| SteelVal::SymbolV(x.into()))
+                        .collect::<crate::values::lists::List<SteelVal>>()
+                        .into()
+                })
+                .unwrap_or_else(|| SteelVal::ListV(List::new()))
+        },
+    );
+}
+
 // The builtin modules a sandboxed kernel leaves out
 const SANDBOXED_MODULES: &[&str] = &["steel/tcp", "steel/http", "steel/polling"];
 
 // Macros that a module's templates and procedural macros refer to by the module's prefix.
 // The module defines or imports them.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct MacroModule {
     pub(crate) environment: String,
     pub(crate) mangler: NameMangler,
@@ -1526,7 +1652,7 @@ struct Introduced<'a> {
     module: Option<steel_parser::scopes::Scope>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct LocalCaptures {
     // Scopes where the macro is defined. What its templates write gets them.
     scopes: steel_parser::scopes::ScopeSetId,
@@ -1810,15 +1936,223 @@ fn splice_phase1(expr: ExprKind, out: &mut Vec<ExprKind>) {
     }
 }
 
+impl Transformers {
+    // New tables with the same contents
+    fn deep_clone(&self) -> Self {
+        fn copy<T: Clone>(table: &Arc<RwLock<T>>) -> Arc<RwLock<T>> {
+            Arc::new(RwLock::new(table.read().unwrap().clone()))
+        }
+
+        Transformers {
+            set: copy(&self.set),
+            names: copy(&self.names),
+            set_transformers: copy(&self.set_transformers),
+            phase1: copy(&self.phase1),
+            programs: copy(&self.programs),
+        }
+    }
+}
+
+/// A kernel for a boot image saved to disk: everything but its engine, which is
+/// made again by doing what it was made to do (`BootStep`).
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SavedKernel {
+    set: TransformerMap,
+    names: FxHashSet<InternedString>,
+    set_transformers: FxHashSet<InternedString>,
+    phase1: FxHashMap<String, Vec<InternedString>>,
+    programs: FxHashMap<String, Phase1Program>,
+    constants: FxHashSet<InternedString>,
+    shared_instances: FxHashSet<PathBuf>,
+    share_host_modules: bool,
+    loaded: FxHashSet<String>,
+    declared: FxHashMap<String, Vec<InternedString>>,
+    instances: FxHashMap<(String, String), String>,
+    instance_count: usize,
+    compile_tags: FxHashMap<String, String>,
+    phase1_macros: FxHashMap<String, FxHashMap<InternedString, SteelMacro>>,
+    phase1_renames: FxHashMap<String, Vec<(String, String)>>,
+    macro_modules: FxHashMap<CompactString, MacroModule>,
+    sandboxed: bool,
+    builtin_macros: FxHashSet<InternedString>,
+    local_macros: FxHashMap<InternedString, LocalCaptures>,
+    macro_scopes: FxHashMap<InternedString, steel_parser::scopes::ScopeSetId>,
+    phase1_aliases: FxHashMap<String, FxHashMap<InternedString, InternedString>>,
+    phase1_procedural: FxHashMap<String, FxHashMap<InternedString, (String, InternedString)>>,
+}
+
 impl Kernel {
+    pub(crate) fn save(&self) -> SavedKernel {
+        // Every field, so a new one has to be saved here or said why not
+        let Kernel {
+            transformers,
+            constants,
+            // Made again by replaying what it was made to do
+            engine: _,
+            shared_instances,
+            share_host_modules,
+            // The modules being compiled now: none between compiles
+            compiling,
+            loaded,
+            declared,
+            instances,
+            instance_count,
+            compile_tags,
+            phase1_macros,
+            phase1_renames,
+            macro_modules,
+            sandboxed,
+            builtin_macros,
+            local_macros,
+            macro_scopes,
+            phase1_aliases,
+            phase1_procedural,
+        } = self;
+        debug_assert!(compiling.is_empty(), "a kernel is saved between compiles");
+        let Transformers {
+            set,
+            names,
+            set_transformers,
+            phase1,
+            programs,
+        } = transformers;
+        SavedKernel {
+            set: set.read().unwrap().clone(),
+            names: names.read().unwrap().clone(),
+            set_transformers: set_transformers.read().unwrap().clone(),
+            phase1: phase1.read().unwrap().clone(),
+            programs: programs.read().unwrap().clone(),
+            constants: constants.clone(),
+            shared_instances: shared_instances.clone(),
+            share_host_modules: *share_host_modules,
+            loaded: loaded.clone(),
+            declared: declared.clone(),
+            instances: instances.clone(),
+            instance_count: *instance_count,
+            compile_tags: compile_tags.clone(),
+            phase1_macros: phase1_macros.clone(),
+            phase1_renames: phase1_renames.clone(),
+            macro_modules: macro_modules.clone(),
+            sandboxed: *sandboxed,
+            builtin_macros: builtin_macros.clone(),
+            local_macros: local_macros.clone(),
+            macro_scopes: macro_scopes.clone(),
+            phase1_aliases: phase1_aliases.clone(),
+            phase1_procedural: phase1_procedural.clone(),
+        }
+    }
+
+    /// The saved kernel, with the engine `make_engine` makes. It is given a function
+    /// that registers the kernel's transformer functions, over this kernel's tables,
+    /// in an engine, for it to put in the slots they had.
+    pub(crate) fn restore(
+        saved: SavedKernel,
+        make_engine: impl FnOnce(&dyn Fn(&mut Engine)) -> Engine,
+    ) -> Kernel {
+        let transformers = Transformers {
+            set: Arc::new(RwLock::new(saved.set)),
+            names: Arc::new(RwLock::new(saved.names)),
+            set_transformers: Arc::new(RwLock::new(saved.set_transformers)),
+            phase1: Arc::new(RwLock::new(saved.phase1)),
+            programs: Arc::new(RwLock::new(saved.programs)),
+        };
+        let engine = make_engine(&|engine: &mut Engine| {
+            register_transformer_functions(engine, &transformers)
+        });
+
+        Kernel {
+            transformers,
+            engine: Box::new(engine),
+            compiling: Vec::new(),
+            constants: saved.constants,
+            shared_instances: saved.shared_instances,
+            share_host_modules: saved.share_host_modules,
+            loaded: saved.loaded,
+            declared: saved.declared,
+            instances: saved.instances,
+            instance_count: saved.instance_count,
+            compile_tags: saved.compile_tags,
+            phase1_macros: saved.phase1_macros,
+            phase1_renames: saved.phase1_renames,
+            macro_modules: saved.macro_modules,
+            sandboxed: saved.sandboxed,
+            builtin_macros: saved.builtin_macros,
+            local_macros: saved.local_macros,
+            macro_scopes: saved.macro_scopes,
+            phase1_aliases: saved.phase1_aliases,
+            phase1_procedural: saved.phase1_procedural,
+        }
+    }
+}
+
+impl Kernel {
+    /// A saved kernel over a copy of `engine`, the engine of a kernel made from the
+    /// same programs (whose transformer functions get the saved kernel's tables)
+    pub(crate) fn restore_over(
+        saved: SavedKernel,
+        engine: &Engine,
+        then: impl FnOnce(&mut Engine),
+    ) -> Kernel {
+        Kernel::restore(saved, |register| {
+            let mut engine = engine.deep_clone();
+            let slots: Vec<_> = TRANSFORMER_FUNCTIONS
+                .iter()
+                .map(|name| engine.virtual_machine.compiler.read().get_idx(name))
+                .collect();
+            register(&mut engine);
+            for (name, slot) in TRANSFORMER_FUNCTIONS.iter().zip(slots) {
+                if let (Some(slot), Ok(function)) = (slot, engine.extract_value(name)) {
+                    engine.virtual_machine.insert_binding(slot, function);
+                }
+            }
+            then(&mut engine);
+            engine
+        })
+    }
+
+    /// A kernel whose macros, transformer tables and engine are its own: macros
+    /// defined in the copy don't reach this one or the reverse. Values in the
+    /// engine's heap (boxes, mutable structs) are shared, as with
+    /// [`Engine::deep_clone`].
+    pub(crate) fn deep_clone(&self) -> Self {
+        let transformers = self.transformers.deep_clone();
+        let mut engine = self.engine.deep_clone();
+
+        // A registered value gets a slot of its own, and the kernel's code refers to
+        // the slots the functions had. Put the new functions in those too.
+        let slots: Vec<_> = TRANSFORMER_FUNCTIONS
+            .iter()
+            .map(|name| engine.virtual_machine.compiler.read().get_idx(name))
+            .collect();
+        register_transformer_functions(&mut engine, &transformers);
+        for (name, slot) in TRANSFORMER_FUNCTIONS.iter().zip(slots) {
+            if let (Some(slot), Ok(function)) = (slot, engine.extract_value(name)) {
+                engine.virtual_machine.insert_binding(slot, function);
+            }
+        }
+
+        let mut kernel = self.clone();
+        kernel.transformers = transformers;
+        kernel.engine = Box::new(engine);
+        kernel
+    }
+
     pub fn new() -> Self {
-        Self::with_sandbox(!cfg!(feature = "unsandboxed-kernel"))
+        Self::with_sandbox(Self::default_sandbox())
+    }
+
+    // Whether macros are sandboxed unless an engine asks otherwise
+    pub(crate) fn default_sandbox() -> bool {
+        !cfg!(feature = "unsandboxed-kernel")
     }
 
     // Without the sandbox, transformer code can use the file system, processes and the
     // network, like programs can
     pub(crate) fn with_sandbox(sandbox: bool) -> Self {
         let mut engine = fresh_kernel_image(sandbox);
+        if RECORD_KERNEL_ENGINE.with(|x| x.get()) {
+            engine.virtual_machine.recording.start();
+        }
 
         let transformers = Transformers {
             set: Arc::new(RwLock::new(HashMap::default())),
@@ -1828,90 +2162,7 @@ impl Kernel {
             programs: Arc::new(RwLock::new(FxHashMap::default())),
         };
 
-        // Records a module's syntax-case macro for the instances other modules get
-        let embedded_transformer_object = transformers.clone();
-        engine.register_fn(
-            "#%record-phase1-transformer!",
-            move |env: String, name: SteelVal, matcher: String, body: SteelVal| -> Result<()> {
-                if let Some(program) = embedded_transformer_object
-                    .programs
-                    .write()
-                    .unwrap()
-                    .get_mut(&env)
-                {
-                    if let SteelVal::SymbolV(name) = name {
-                        let body = TryFromSteelValVisitorForExprKind::root_quoted(&body)?;
-                        program
-                            .transformers
-                            .push((name.as_str().into(), matcher, body));
-                    }
-                }
-
-                Ok(())
-            },
-        );
-
-        // Code with no file, or in a program's file, keeps its transformers in the top level
-        let embedded_transformer_object = transformers.clone();
-        engine.register_fn("#%phase1-environment", move |env: String| -> String {
-            let phase1 = embedded_transformer_object.phase1.read().unwrap();
-
-            if env != "default" && phase1.contains_key(&env) {
-                env
-            } else {
-                "top-level".to_string()
-            }
-        });
-
-        let embedded_transformer_object = transformers.clone();
-        engine.register_fn(
-            "register-macro-transformer!",
-            move |name: String, env: String| {
-                let name: InternedString = name.as_str().into();
-                crate::parser::expand_visitor::registered_procedural(name);
-                embedded_transformer_object
-                    .names
-                    .write()
-                    .unwrap()
-                    .insert(name);
-                embedded_transformer_object
-                    .set
-                    .write()
-                    .unwrap()
-                    .entry(env)
-                    .or_default()
-                    .insert(name)
-            },
-        );
-
-        let embedded_transformer_object = transformers.clone();
-        engine.register_fn("#%register-set!-transformer!", move |name: String| {
-            embedded_transformer_object
-                .set_transformers
-                .write()
-                .unwrap()
-                .insert(name.as_str().into());
-        });
-
-        let embedded_transformer_object = transformers.clone();
-        engine.register_fn(
-            "current-macro-transformers!",
-            move |env: SteelString| -> SteelVal {
-                embedded_transformer_object
-                    .set
-                    .read()
-                    .unwrap()
-                    .get(env.as_str())
-                    .map(|set| {
-                        set.iter()
-                            .map(|x| x.resolve().to_string())
-                            .map(|x| SteelVal::SymbolV(x.into()))
-                            .collect::<crate::values::lists::List<SteelVal>>()
-                            .into()
-                    })
-                    .unwrap_or_else(|| SteelVal::ListV(List::new()))
-            },
-        );
+        register_transformer_functions(&mut engine, &transformers);
 
         // Load in parameters.
         // TODO: Merge this with the path in modules.rs
@@ -3695,4 +3946,17 @@ fn without_pattern_variables(template: ExprKind, names: &[InternedString]) -> Ex
         ])]),
         template,
     ])
+}
+
+#[cfg(test)]
+pub(crate) fn thread_state_for_tests() -> Vec<(&'static str, String)> {
+    vec![("MACRO_INPUTS", MACRO_INPUTS.with(|x| x.borrow().len()).to_string())]
+}
+
+#[cfg(test)]
+impl Kernel {
+    /// What `save` leaves out
+    pub(crate) fn unsaved_state(&self) -> Vec<(&'static str, String)> {
+        vec![("compiling", format!("{:?}", self.compiling))]
+    }
 }

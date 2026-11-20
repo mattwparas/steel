@@ -217,6 +217,19 @@ impl ConstantMap {
         self.values.read().get(idx).cloned()
     }
 
+    /// Puts `value` at `idx` instead of what is there, which `add` put there.
+    pub(crate) fn replace(&mut self, idx: usize, value: SteelVal) {
+        let old = core::mem::replace(&mut self.values.write()[idx], value.clone());
+        let mut map = self.map.write();
+        if map.get(&old) == Some(&idx) {
+            map.remove(&old);
+        }
+        map.insert(value, idx);
+        drop(map);
+        self.reified_values
+            .store(Arc::new(self.values.read().iter().cloned().collect()));
+    }
+
     // Replace with existing constants if they already exist
     fn walk_constants(&mut self, val: &SteelVal) -> Option<SteelVal> {
         match val {

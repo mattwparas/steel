@@ -3,6 +3,7 @@
 pub mod compiler;
 pub mod constants;
 pub mod map;
+pub(crate) mod module_cache;
 pub mod modules;
 pub mod passes;
 pub mod program;

@@ -10,6 +10,8 @@ mod continuations_from_host;
 #[cfg(all(feature = "sync", feature = "jit2"))]
 mod counted_loops;
 mod cross_module_macros;
+mod engine_isolation;
+mod process_state_census;
 #[cfg(feature = "sync")]
 mod engines_side_by_side;
 #[cfg(feature = "sync")]
@@ -374,6 +376,7 @@ test_harness_success! {
     symbols,
     // TODO: @Matt 11/11/2023
     syntax_case,
+    syntax_rules_token_literals,
     threads,
     transducer_over_streams,
     tree_traversal,
@@ -565,6 +568,7 @@ test_harness_success_module! {
     symbols,
     // TODO: @Matt 11/11/2023
     syntax_case,
+    syntax_rules_token_literals,
     threads,
     transducer_over_streams,
     tree_traversal,

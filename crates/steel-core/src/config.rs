@@ -123,6 +123,21 @@ steel_config! {
     /// Run cranelift's verifier on everything the jit emits. Slow on compile
     /// heavy programs.
     jit_verifier: bool = true, "STEEL_JIT_VERIFIER";
+    /// Experiment: keep compiled functions on disk with Cranelift's incremental
+    /// cache, next to the boot images, and reuse them when the IR is the same.
+    jit_code_cache: bool = false, "STEEL_JIT_CODE_CACHE";
+    /// Print each `STEEL_JIT_CODE_CACHE` lookup: hit or miss, time, size.
+    jit_code_cache_log: bool = false, "STEEL_JIT_CODE_CACHE_LOG";
+    /// Past this many files, a cleanup deletes the least recently used
+    /// compiled functions until 70% of the limit is left.
+    jit_code_cache_max_files: u64 = 65536, "STEEL_JIT_CODE_CACHE_MAX_FILES";
+    /// The same for their total size, in MiB.
+    jit_code_cache_max_mib: u64 = 512, "STEEL_JIT_CODE_CACHE_MAX_MIB";
+    /// A cleanup runs at most this often, in seconds.
+    jit_code_cache_cleanup_secs: u64 = 3600, "STEEL_JIT_CODE_CACHE_CLEANUP_SECS";
+    /// Experiment: generated code refers to the addresses it bakes in (heap
+    /// objects, functions) through named symbols instead of constants.
+    jit_named_addresses: bool = false, "STEEL_JIT_NAMED_ADDRESSES";
     /// Size of the code arena in MiB (default 1024, 256 on windows; at most 2047).
     jit_memory_size: Option<usize> = None, "STEEL_JIT_MEMORY_SIZE";
     /// Past this many speculation exits a function is recompiled without
@@ -308,6 +323,14 @@ steel_config! {
     module_inline: bool = true, "STEEL_MODULE_INLINE";
     /// Lift closures into top level functions.
     closure_lifting: bool = true, "STEEL_CLOSURE_LIFTING";
+    /// Run the passes after expansion once per newly compiled module, then once
+    /// for the rest of the program, instead of once over all of it.
+    separate_modules: bool = false, "STEEL_SEPARATE_MODULES";
+    /// Keep modules compiled on their own (`STEEL_SEPARATE_MODULES`) on disk,
+    /// and read them instead of compiling them again. Needs a boot image.
+    module_cache: bool = false, "STEEL_MODULE_CACHE";
+    /// Log what the module cache keeps and reads.
+    module_cache_debug: bool = false, "STEEL_MODULE_CACHE_DEBUG";
     /// Lift closures in place.
     lift_in_place: bool = true, "STEEL_LIFT_IN_PLACE";
     /// Drop captures a lifted closure never uses.
@@ -366,6 +389,23 @@ steel_config! {
     pass_modules: Option<String> = None, "STEEL_PASS_MODULES";
     /// A Steel pass in `compare` mode that differs from its Rust version fails compilation.
     pass_compare_fail: bool = false, "STEEL_PASS_COMPARE_FAIL";
+    /// Run the Steel passes (as `STEEL_PASSES` sets them) on the prelude each engine
+    /// loads too. Otherwise it is compiled with the Rust passes, which give the same
+    /// bytecode in about a quarter of the time.
+    passes_on_prelude: bool = false, "STEEL_PASSES_ON_PRELUDE";
+    /// Start engines from a boot image: the prelude compiled once per process, its
+    /// programs run again in each engine. Off compiles the prelude in every engine.
+    boot_image: bool = true, "STEEL_BOOT_IMAGE";
+    /// Save each boot image to bytes and read it back before any engine uses it,
+    /// to check a saved image makes engines that behave the same.
+    boot_image_roundtrip: bool = false, "STEEL_BOOT_IMAGE_ROUNDTRIP";
+    /// Keep boot images in a cache directory and start from them, whether or not
+    /// the program asks (`Engine::enable_boot_image_cache`). See
+    /// `STEEL_BOOT_IMAGE_DIR`.
+    boot_image_cache: Option<bool> = None, "STEEL_BOOT_IMAGE_CACHE";
+    /// Where boot images are kept: by default `$XDG_CACHE_HOME/steel`, or
+    /// `~/.cache/steel`.
+    boot_image_dir: Option<String> = None, "STEEL_BOOT_IMAGE_DIR";
     /// Bind `(car x)` before a recursive call passing `(cdr x)`.
     hoist_car: bool = true, "STEEL_HOIST_CAR";
     /// Evaluate a `set-box!`'s value before reading the box when the value

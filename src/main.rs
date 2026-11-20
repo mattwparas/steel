@@ -16,6 +16,8 @@ static GLOBAL: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
+    // Later runs start from the boot image this one keeps
+    steel::steel_vm::engine::Engine::enable_boot_image_cache(None);
     let clap_args = SteelCliArgs::parse();
     let result = steel_interpreter::run(clap_args);
     if steel::deopt_census_enabled() {

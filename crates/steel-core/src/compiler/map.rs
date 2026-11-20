@@ -163,6 +163,11 @@ impl SymbolMap {
         self.values.is_empty()
     }
 
+    /// A compile succeeded: nothing it replaced is rolled back
+    pub(crate) fn clear_replaced(&mut self) {
+        self.replaced.clear();
+    }
+
     pub fn roll_back(&mut self, index: usize) {
         for value in self.values.drain(index..) {
             self.map.remove(&value);
@@ -257,5 +262,13 @@ impl SymbolMap {
             .get(ident)
             .copied()
             .ok_or_else(throw!(FreeIdentifier => "Cannot reference an identifier before its definition: {}", ident.resolve()))
+    }
+}
+
+#[cfg(test)]
+impl SymbolMap {
+    /// What isn't saved with it: a compile's rollback, empty between compiles
+    pub(crate) fn unsaved_state(&self) -> Vec<(&'static str, String)> {
+        vec![("replaced", self.replaced.len().to_string())]
     }
 }

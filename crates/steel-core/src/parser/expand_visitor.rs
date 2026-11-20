@@ -922,8 +922,9 @@ thread_local! {
 
     // Introduction scopes of expansions of required modules' macros. Names those expansions
     // wrote resolve where the macros are defined.
-    static FOREIGN_EXPANSIONS: core::cell::RefCell<FxHashSet<steel_parser::scopes::Scope>> =
-        core::cell::RefCell::new(FxHashSet::default());
+    // In the order they were recorded, so a compile's are the last ones
+    static FOREIGN_EXPANSIONS: core::cell::RefCell<ForeignExpansions> =
+        core::cell::RefCell::new(ForeignExpansions::default());
 
     // Procedural macros the code being expanded can use. Their uses get their arguments as
     // written
@@ -942,9 +943,11 @@ fn procedural_definition(expr: &ExprKind) -> bool {
 }
 
 // The kernel's name for a macro defined inside a function
+pub(crate) static LOCAL_MACRO_NAMES: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+
 fn fresh_local_macro_name(name: InternedString) -> InternedString {
-    static COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-    let n = COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let n = LOCAL_MACRO_NAMES.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     InternedString::from(format!("{name}%local{n}"))
 }
 
@@ -1050,7 +1053,7 @@ pub(crate) fn local_binding(
 
 // What each module's top-level names refer to: its own definitions, and for each import the
 // module it comes from and its name there. Kept by module name.
-#[derive(Default)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ModuleBindings {
     pub(crate) own: FxHashSet<InternedString>,
     pub(crate) imports: FxHashMap<InternedString, (InternedString, InternedString)>,
@@ -1258,7 +1261,7 @@ pub(crate) fn forget_module_bindings(module: InternedString) {
     MODULE_BINDINGS.with(|x| x.borrow_mut().remove(&module));
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TemplateImport {
     pub(crate) name: InternedString,
     pub(crate) scopes: steel_parser::scopes::ScopeSetId,
@@ -1432,6 +1435,55 @@ pub(crate) fn same_global_binding(
 // kernel leaves forms headed by these to the kernel's pass.
 static REGISTERED_PROCEDURAL: once_cell::sync::Lazy<std::sync::RwLock<FxHashSet<InternedString>>> =
     once_cell::sync::Lazy::new(Default::default);
+
+/// The struct info and procedural macro names recorded so far, for a boot image
+pub(crate) fn recorded_globally() -> (
+    Vec<((InternedString, InternedString), (Vec<InternedString>, bool))>,
+    Vec<InternedString>,
+) {
+    (
+        STRUCT_INFO
+            .read()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (*k, v.clone()))
+            .collect(),
+        REGISTERED_PROCEDURAL.read().unwrap().iter().copied().collect(),
+    )
+}
+
+/// Adds what `recorded_globally` gave to what's recorded here
+/// Forgets what was recorded for `module`'s top level: its bindings, its
+/// definitions and its structs, as compiling it again does
+pub(crate) fn forget_module(module: InternedString) {
+    forget_module_bindings(module);
+    DEFINED_NAMES.with(|x| x.borrow_mut().remove(&module));
+    STRUCT_INFO.write().unwrap().retain(|(m, _), _| *m != module);
+}
+
+/// The struct info recorded for the structs `module` defines
+pub(crate) fn struct_info_of(
+    module: InternedString,
+) -> Vec<((InternedString, InternedString), (Vec<InternedString>, bool))> {
+    STRUCT_INFO
+        .read()
+        .unwrap()
+        .iter()
+        .filter(|((m, _), _)| *m == module)
+        .map(|(k, v)| (*k, v.clone()))
+        .collect()
+}
+
+pub(crate) fn restore_recorded_globally(
+    struct_info: Vec<((InternedString, InternedString), (Vec<InternedString>, bool))>,
+    procedural: Vec<InternedString>,
+) {
+    let mut info = STRUCT_INFO.write().unwrap();
+    for (key, value) in struct_info {
+        info.entry(key).or_insert(value);
+    }
+    REGISTERED_PROCEDURAL.write().unwrap().extend(procedural);
+}
 
 pub(crate) fn registered_procedural(name: InternedString) {
     REGISTERED_PROCEDURAL.write().unwrap().insert(name);
@@ -1807,6 +1859,100 @@ fn names_procedural(expr: &ExprKind, in_scope: &ScopeSet<InternedString, FxBuild
         })
 }
 
+/// What compiling some modules left in this thread's expander state that later
+/// compiles read: the modules' bindings and definitions, and the expansions of
+/// required modules' macros. An engine made from a boot image on another
+/// thread compiles against these without having compiled the modules itself
+/// (see `BootImage`).
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ThreadExpanderState {
+    module_bindings: Vec<(InternedString, ModuleBindings)>,
+    defined_names: Vec<(InternedString, Vec<InternedString>)>,
+    foreign_expansions: Vec<steel_parser::scopes::Scope>,
+}
+
+#[derive(Default)]
+struct ForeignExpansions {
+    set: FxHashSet<steel_parser::scopes::Scope>,
+    order: Vec<steel_parser::scopes::Scope>,
+}
+
+impl ForeignExpansions {
+    fn insert(&mut self, scope: steel_parser::scopes::Scope) {
+        if self.set.insert(scope) {
+            self.order.push(scope);
+        }
+    }
+}
+
+/// How many foreign expansions had been recorded, to tell later which ones a
+/// compile added
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ForeignMark(usize);
+
+impl ThreadExpanderState {
+    pub(crate) fn foreign_expansions() -> ForeignMark {
+        ForeignMark(FOREIGN_EXPANSIONS.with(|x| x.borrow().order.len()))
+    }
+
+    /// This thread's state for `modules`, and the foreign expansions recorded
+    /// since `before`
+    pub(crate) fn capture(
+        modules: impl IntoIterator<Item = InternedString>,
+        before: &ForeignMark,
+    ) -> Self {
+        let modules: Vec<InternedString> = modules.into_iter().collect();
+        ThreadExpanderState {
+            module_bindings: MODULE_BINDINGS.with(|x| {
+                let bindings = x.borrow();
+                modules
+                    .iter()
+                    .filter_map(|m| Some((*m, bindings.get(m)?.clone())))
+                    .collect()
+            }),
+            defined_names: DEFINED_NAMES.with(|x| {
+                let names = x.borrow();
+                modules
+                    .iter()
+                    .filter_map(|m| Some((*m, names.get(m)?.clone())))
+                    .collect()
+            }),
+            foreign_expansions: FOREIGN_EXPANSIONS.with(|x| {
+                x.borrow().order.get(before.0..).unwrap_or_default().to_vec()
+            }),
+        }
+    }
+
+    /// Adds the state to this thread's, where it isn't there already
+    pub(crate) fn install(&self) {
+        MODULE_BINDINGS.with(|x| {
+            let mut bindings = x.borrow_mut();
+            for (module, recorded) in &self.module_bindings {
+                bindings.entry(*module).or_insert_with(|| recorded.clone());
+            }
+        });
+        DEFINED_NAMES.with(|x| {
+            let mut names = x.borrow_mut();
+            for (module, defined) in &self.defined_names {
+                names.entry(*module).or_insert_with(|| defined.clone());
+            }
+        });
+        FOREIGN_EXPANSIONS.with(|x| {
+            let mut foreign = x.borrow_mut();
+            for scope in &self.foreign_expansions {
+                foreign.insert(*scope);
+            }
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn this_thread_knows(module: &str) -> bool {
+        let module = InternedString::from(module);
+        MODULE_BINDINGS.with(|x| x.borrow().contains_key(&module))
+            && DEFINED_NAMES.with(|x| x.borrow().contains_key(&module))
+    }
+}
+
 // Records an expansion of a required module's macro by its introduction scope
 pub(crate) fn record_foreign(introduction: steel_parser::scopes::Scope) {
     FOREIGN_EXPANSIONS.with(|x| x.borrow_mut().insert(introduction));
@@ -1815,7 +1961,7 @@ pub(crate) fn record_foreign(introduction: steel_parser::scopes::Scope) {
 // Whether a required module's macro wrote an identifier with these scopes
 pub(crate) fn is_foreign(scopes: &steel_parser::scopes::ScopeSetId) -> bool {
     FOREIGN_EXPANSIONS.with(|x| {
-        let foreign = x.borrow();
+        let foreign = &x.borrow().set;
         !foreign.is_empty()
             && scopes.introduced()
             && scopes
@@ -1858,6 +2004,9 @@ impl Drop for CompileScope {
             PATHS.with(|x| x.borrow_mut().clear());
             SUFFIXES.with(|x| x.borrow_mut().clear());
             BODY_USE_SITES.with(|x| x.borrow_mut().clear());
+            // An expansion no body took, which the next compile's first body
+            // would otherwise take
+            LAST_USE_SITE.with(|x| x.set(None));
             steel_parser::scopes::trim_caches();
         }
     }
@@ -1990,6 +2139,18 @@ pub(crate) fn define_macro(
 
 // Whether any definition has replaced a prelude macro
 static PRELUDE_ALIASES: AtomicBool = AtomicBool::new(false);
+
+/// Whether some prelude macro is kept under an alias (`prelude_macro_alias`),
+/// for a boot image
+pub(crate) fn prelude_aliases() -> bool {
+    PRELUDE_ALIASES.load(Ordering::Relaxed)
+}
+
+pub(crate) fn restore_prelude_aliases(set: bool) {
+    if set {
+        PRELUDE_ALIASES.store(true, Ordering::Relaxed);
+    }
+}
 
 pub(crate) fn is_local_macro_definition(expr: &ExprKind) -> bool {
     matches!(expr, ExprKind::List(l) if defines_local_macro(l))
@@ -5920,6 +6081,23 @@ fn _define_quoted_ast_node(ast_name: ExprKind, expanded_expr: &ExprKind) -> Expr
 
 #[cfg(test)]
 mod expansion_tests {
+    // A mark gives back what was recorded after it, once each, in order
+    #[test]
+    fn foreign_expansions_since_a_mark() {
+        use super::{record_foreign, ThreadExpanderState};
+        use steel_parser::scopes::Scope;
+        let old = Scope::fresh_introduction();
+        record_foreign(old);
+        let mark = ThreadExpanderState::foreign_expansions();
+        let (a, b) = (Scope::fresh_introduction(), Scope::fresh_introduction());
+        record_foreign(a);
+        record_foreign(old);
+        record_foreign(b);
+        record_foreign(a);
+        let state = ThreadExpanderState::capture([], &mark);
+        assert_eq!(state.foreign_expansions, vec![a, b]);
+    }
+
     use steel_parser::span::Span;
 
     use super::*;
@@ -6019,4 +6197,27 @@ fn duplicate_binder<'a>(binders: impl Iterator<Item = &'a ExprKind>, message: &s
         seen.push(syn);
     }
     Ok(())
+}
+
+/// This thread's expander state, as text, for comparing two processes in tests
+#[cfg(test)]
+pub(crate) fn thread_state_for_tests() -> Vec<(&'static str, String)> {
+    let mut procedural: Vec<String> =
+        PROCEDURAL_HEADS.with(|x| x.borrow().iter().map(|x| x.resolve().to_string()).collect());
+    procedural.sort();
+    vec![
+        ("COMPILES", COMPILES.with(|x| x.get()).to_string()),
+        ("PROCEDURAL_HEADS", format!("{procedural:?}")),
+        ("FORM_SCOPES", FORM_SCOPES.with(|x| x.borrow().len()).to_string()),
+        ("LAST_USE_SITE", LAST_USE_SITE.with(|x| x.get().is_some()).to_string()),
+        ("BODY_USE_SITES", BODY_USE_SITES.with(|x| x.borrow().len()).to_string()),
+        ("BINDER_TABLES", BINDER_TABLES.with(|x| x.borrow().len()).to_string()),
+        ("CURRENT_MODULE", format!("{:?}", CURRENT_MODULE.with(|x| x.get()))),
+        ("LITERAL_MODULE", format!("{:?}", LITERAL_MODULE.with(|x| x.get()))),
+        ("USE_CHAIN", USE_CHAIN.with(|x| x.get().is_null()).to_string()),
+        ("LITERAL_SCOPES", LITERAL_SCOPES.with(|x| x.borrow().is_some()).to_string()),
+        ("PATHS", PATHS.with(|x| x.borrow().len()).to_string()),
+        ("SUFFIXES", SUFFIXES.with(|x| x.borrow().len()).to_string()),
+        ("PRELUDE_ALIASES", prelude_aliases().to_string()),
+    ]
 }

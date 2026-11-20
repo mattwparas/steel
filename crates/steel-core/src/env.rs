@@ -89,13 +89,23 @@ pub struct Env {
     pub(crate) bindings_vec: Vec<SteelVal>,
     #[cfg(feature = "sync")]
     pub(crate) bindings: SharedVectorWrapper,
+    // Unique to these bindings: a copy of them gets its own. The jit keys compiled
+    // code by it, since code is compiled against one environment's globals.
+    pub(crate) id: u64,
+}
+
+fn fresh_env_id() -> u64 {
+    static NEXT: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
 }
 
 #[cfg(feature = "sync")]
 impl Clone for Env {
     fn clone(&self) -> Self {
+        // The same bindings, shared
         Self {
             bindings: self.bindings.clone(),
+            id: self.id,
         }
     }
 }
@@ -103,8 +113,10 @@ impl Clone for Env {
 #[cfg(not(feature = "sync"))]
 impl Clone for Env {
     fn clone(&self) -> Self {
+        // A copy of the bindings
         Self {
             bindings_vec: self.bindings_vec.clone(),
+            id: fresh_env_id(),
         }
     }
 }
@@ -126,6 +138,7 @@ impl Env {
     pub fn root() -> Self {
         Env {
             bindings_vec: Vec::with_capacity(1024),
+            id: fresh_env_id(),
         }
     }
 
@@ -223,6 +236,7 @@ impl Env {
     pub fn root() -> Self {
         Env {
             bindings: SharedVectorWrapper(AtomicSharedVector::with_capacity(1024)),
+            id: fresh_env_id(),
         }
     }
 
@@ -231,6 +245,7 @@ impl Env {
             bindings: SharedVectorWrapper(
                 self.bindings.clone().0.into_unique().into_shared_atomic(),
             ),
+            id: fresh_env_id(),
         }
     }
 

@@ -11,7 +11,7 @@ use crate::{
     },
     core::{
         instructions::{u24, Instruction},
-        labels::{resolve_labels, LabeledInstruction},
+        labels::{resolve_labels, LabeledInstruction, Reloc},
         opcode::OpCode,
     },
     parser::{
@@ -34,7 +34,24 @@ use crate::rvals::Result;
 // TODO: Have this interner also be a part of what gets saved...
 pub(crate) static FUNCTION_ID: AtomicUsize = AtomicUsize::new(0);
 
+std::thread_local! {
+    // While a module's code is put together on its own: the next of its function ids
+    static LOCAL_FUNCTION_IDS: core::cell::Cell<Option<usize>> = const { core::cell::Cell::new(None) };
+}
+
+/// Runs `f` with function ids numbered from 0, as a module's own
+pub(crate) fn with_local_function_ids<T>(f: impl FnOnce() -> T) -> T {
+    let outer = LOCAL_FUNCTION_IDS.with(|ids| ids.replace(Some(0)));
+    let result = f();
+    LOCAL_FUNCTION_IDS.with(|ids| ids.set(outer));
+    result
+}
+
 pub fn fresh_function_id() -> usize {
+    if let Some(next) = LOCAL_FUNCTION_IDS.with(|ids| ids.get()) {
+        LOCAL_FUNCTION_IDS.with(|ids| ids.set(Some(next + 1)));
+        return next;
+    }
     FUNCTION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
@@ -87,6 +104,17 @@ impl<'a> CodeGenerator<'a> {
         }
     }
 
+    /// `top_level_compile`, and the payloads to relocate (`Reloc`)
+    pub fn top_level_compile_relocatable(
+        mut self,
+        expr: &ExprKind,
+    ) -> Result<(Vec<Instruction>, Vec<(usize, Reloc)>)> {
+        self.visit(expr)?;
+        self.instructions
+            .push(LabeledInstruction::builder(OpCode::POPPURE));
+        Ok(crate::core::labels::resolve_labels_relocatable(self.instructions))
+    }
+
     pub fn top_level_compile(mut self, expr: &ExprKind) -> Result<Vec<Instruction>> {
         self.visit(expr)?;
         self.instructions
@@ -111,6 +139,7 @@ impl<'a> CodeGenerator<'a> {
         self.push(
             LabeledInstruction::builder(OpCode::PUSHCONST)
                 .payload(idx)
+                .reloc(Reloc::Constant)
                 .contents(syn.clone()),
         );
         Ok(())
@@ -283,7 +312,11 @@ impl<'a> CodeGenerator<'a> {
 
         // println!("Index: {:?}", idx);
 
-        self.push(LabeledInstruction::builder(OpCode::PASS).payload(idx));
+        self.push(
+            LabeledInstruction::builder(OpCode::PASS)
+                .payload(idx)
+                .reloc(Reloc::Constant),
+        );
 
         Some(())
 
@@ -470,7 +503,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         //     LabeledInstruction::builder(OpCode::PASS).payload(lambda_function.syntax_object_id),
         // );
 
-        self.push(LabeledInstruction::builder(OpCode::PASS).payload(fresh_function_id()));
+        self.push(
+            LabeledInstruction::builder(OpCode::PASS)
+                .payload(fresh_function_id())
+                .reloc(Reloc::Function),
+        );
 
         // Save how many locals we have, for when we hit lets
         self.local_count.push(arity);
@@ -653,6 +690,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         self.push(
             LabeledInstruction::builder(OpCode::PUSHCONST)
                 .payload(idx)
+                .reloc(Reloc::Constant)
                 // TODO: This is a little suspect, we're doing a bunch of stuff twice
                 // that we really don't need. In fact, we probably can get away with just...
                 // embedding the steel val directly here.
@@ -945,7 +983,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 let converted = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(arg.clone())?;
 
                 let idx = self.constant_map.add_or_get(converted);
-                self.push(LabeledInstruction::builder(OpCode::PUSHCONST).payload(idx));
+                self.push(
+                    LabeledInstruction::builder(OpCode::PUSHCONST)
+                        .payload(idx)
+                        .reloc(Reloc::Constant),
+                );
             }
         }
 

@@ -186,7 +186,9 @@ pub fn closure_into_serializable(
 ) -> Result<SerializedLambda> {
     let mut constants = HashMap::new();
 
-    for (position, instr) in c.body_exp.iter().enumerate() {
+    // Written as it is: what it refers to is where it was
+    let verbatim = ctx.verbatim;
+    for (position, instr) in c.body_exp.iter().enumerate().filter(|_| !verbatim) {
         // The first instruction is sent as what it was before the function
         // was compiled, which is kept in the header.
         let op_code = match c.header {

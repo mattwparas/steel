@@ -245,11 +245,15 @@ impl SteelMacro {
             .atom_identifier_or_else(throw!(BadSyntax => "macros only currently support
                     identifiers as the name"; ast_macro.location.span))?;
 
+        // A literal can be a name the reader makes a token, like `quote`, as in Racket
         let special_forms = ast_macro
             .syntax_rules
             .syntax
             .into_iter()
             .map(|x| {
+                if let Some(name) = x.atom_syntax_object().and_then(|syn| keyword_token_name(&syn.ty)) {
+                    return Ok(name);
+                }
                 x.atom_identifier_or_else(
                     throw!(BadSyntax => format!("macros only support identifiers for special syntax, found: {}", x); x.span()),
                 )
@@ -418,7 +422,7 @@ pub struct MacroCase {
 // Templates and patterns can nest too deep to drop recursively
 impl Drop for MacroCase {
     fn drop(&mut self) {
-        steel_parser::ast::drop_deep([core::mem::take(&mut self.body)]);
+        steel_parser::ast::drop_deep([core::mem::replace(&mut self.body, ExprKind::hole())]);
 
         let mut patterns = core::mem::take(&mut self.args.args);
         while let Some(pattern) = patterns.pop() {
@@ -882,6 +886,16 @@ impl MacroPattern {
                 ExprKind::Atom(Atom {
                     syn: SyntaxObject { ty: s, span, .. },
                 }) => match s {
+                    // A name the reader makes a token, listed as a literal
+                    ref token
+                        if keyword_token_name(token)
+                            .is_some_and(|name| ctx.special_forms.contains(&name)) =>
+                    {
+                        pattern_vec.push(MacroPattern::Syntax(
+                            keyword_token_name(token).unwrap(),
+                            false,
+                        ))
+                    }
                     TokenType::Identifier(t) => {
                         if t == ctx.name || ctx.special_forms.contains(&t) {
                             pattern_vec.push(MacroPattern::Syntax(t, false))
@@ -1269,6 +1283,8 @@ fn match_single_pattern(
                         ..
                     },
             }) if literal_matches(v, s, syn, in_scope, globals) => true,
+            // A literal like `quote`, written where the reader made it a token
+            ExprKind::Atom(Atom { syn }) if keyword_token_name(&syn.ty) == Some(*v) => true,
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
@@ -2127,6 +2143,28 @@ mod collect_bindings_tests {
 
         assert_eq!(bindings, post_bindings);
     }
+}
+
+// The name of a token the reader makes from a name, like `quote` or `define`
+fn keyword_token_name(ty: &TokenType<InternedString>) -> Option<InternedString> {
+    use steel_parser::ast::{
+        BEGIN, DEFINE, IF, LAMBDA, LET, PLAIN_LET, QUOTE, REQUIRE, RETURN, SET,
+    };
+    Some(match ty {
+        TokenType::Quote => *QUOTE,
+        TokenType::If => *IF,
+        TokenType::Define => *DEFINE,
+        TokenType::Lambda => *LAMBDA,
+        TokenType::Begin => *BEGIN,
+        TokenType::Let => *LET,
+        TokenType::TestLet => *PLAIN_LET,
+        TokenType::Set => *SET,
+        TokenType::Require => *REQUIRE,
+        TokenType::Return => *RETURN,
+        TokenType::DefineSyntax => InternedString::from_static("define-syntax"),
+        TokenType::SyntaxRules => InternedString::from_static("syntax-rules"),
+        _ => return None,
+    })
 }
 
 // A list pattern matches a quote as the list `(quote datum)`

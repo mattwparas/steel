@@ -407,3 +407,8 @@ pub(crate) fn register(module: &mut BuiltInModule) {
         .register_fn("reorderable-primitive?", reorderable_primitive)
         .register_fn("compiler-setting", compiler_setting);
 }
+
+#[cfg(test)]
+pub(crate) fn thread_state_for_tests() -> Vec<(&'static str, String)> {
+    vec![("FACTS", FACTS.with(|x| x.borrow().is_some()).to_string())]
+}

@@ -32,6 +32,16 @@ impl Drop for Expr {
     }
 }
 
+/// What an instruction's payload is, when a module's code is put together on its
+/// own: a number of its own, made the process's when it is linked
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Reloc {
+    /// An index in the module's constants
+    Constant,
+    /// A function's id, numbered within the module
+    Function,
+}
+
 #[derive(Clone, Debug)]
 pub struct LabeledInstruction {
     pub op_code: OpCode,
@@ -39,6 +49,7 @@ pub struct LabeledInstruction {
     pub contents: Option<Expr>,
     pub tag: Option<Label>,
     pub goto: Option<Label>,
+    pub reloc: Option<Reloc>,
 }
 
 impl LabeledInstruction {
@@ -49,7 +60,13 @@ impl LabeledInstruction {
             contents: None,
             tag: None,
             goto: None,
+            reloc: None,
         }
+    }
+
+    pub fn reloc(mut self, reloc: Reloc) -> Self {
+        self.reloc = Some(reloc);
+        self
     }
 
     // TODO: Automatically split into two instructions
@@ -93,6 +110,18 @@ impl LabeledInstruction {
     pub fn set_tag(&mut self, tag: Label) {
         self.tag = Some(tag);
     }
+}
+
+/// The instructions, and the payloads in them to relocate, by position
+pub fn resolve_labels_relocatable(
+    instructions: Vec<LabeledInstruction>,
+) -> (Vec<Instruction>, Vec<(usize, Reloc)>) {
+    let relocs = instructions
+        .iter()
+        .enumerate()
+        .filter_map(|(index, x)| Some((index, x.reloc?)))
+        .collect();
+    (resolve_labels(instructions), relocs)
 }
 
 pub fn resolve_labels(instructions: Vec<LabeledInstruction>) -> Vec<Instruction> {

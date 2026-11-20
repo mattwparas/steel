@@ -265,7 +265,7 @@ pub fn drop_deep(exprs: impl IntoIterator<Item = ExprKind>) {
 
     // Take the children out of each expression before dropping it
     while let Some(mut expr) = stack.pop() {
-        let take = core::mem::take::<ExprKind>;
+        let take = |expr: &mut ExprKind| core::mem::replace(expr, ExprKind::hole());
 
         match &mut expr {
             ExprKind::Atom(_) => {}
@@ -391,6 +391,19 @@ impl ExprKind {
 
     pub fn empty() -> ExprKind {
         ExprKind::List(List::new(ThinVec::new()))
+    }
+
+    /// An empty list with no syntax object id of its own, to leave where an
+    /// expression is taken out of something about to be dropped. `empty` takes a
+    /// fresh id each time.
+    pub fn hole() -> ExprKind {
+        ExprKind::List(List {
+            args: ThinVec::new(),
+            syntax_object_id: 0,
+            improper: false,
+            location: Span::default(),
+            scopes: crate::scopes::ScopeSetId::EMPTY,
+        })
     }
 
     pub fn integer_literal(value: isize, span: Span) -> ExprKind {
@@ -763,6 +776,10 @@ pub struct Let {
     pub bindings: Vec<(ExprKind, ExprKind)>,
     pub body_expr: ExprKind,
     pub location: SyntaxObject,
+    #[serde(
+        serialize_with = "crate::parser::write_syntax_id",
+        deserialize_with = "crate::parser::read_syntax_id"
+    )]
     pub syntax_object_id: u32,
 }
 
@@ -997,6 +1014,10 @@ pub struct LambdaFunction {
     pub body: ExprKind,
     pub location: SyntaxObject,
     pub rest: bool,
+    #[serde(
+        serialize_with = "crate::parser::write_syntax_id",
+        deserialize_with = "crate::parser::read_syntax_id"
+    )]
     pub syntax_object_id: u32,
     // Helpful for the optimizer and the LSP
     // to resolve keyword args ahead of time.
@@ -1313,13 +1334,17 @@ impl From<Vector> for ExprKind {
 pub struct List {
     #[serde(with = "thin_vec_serde")]
     pub args: ThinVec<ExprKind>,
+    #[serde(
+        serialize_with = "crate::parser::write_syntax_id",
+        deserialize_with = "crate::parser::read_syntax_id"
+    )]
     pub syntax_object_id: u32,
     pub improper: bool,
     // TODO: Attach the span from the parser - just the offset
     // of the open and close parens
     pub location: Span,
     // Scopes of the list itself, which `datum->syntax` can use as context
-    #[serde(skip)]
+    #[serde(default)]
     pub scopes: crate::scopes::ScopeSetId,
 }
 

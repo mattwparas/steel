@@ -136,7 +136,7 @@ pub(crate) fn is_prelude_builtin(name: &InternedString) -> bool {
     crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS.with(|names| names.contains(name))
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NameMangler {
     pub(crate) globals: FxHashSet<InternedString>,
     // The module's macros that aren't globals. Its templates refer to them with its prefix

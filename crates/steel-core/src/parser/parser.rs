@@ -213,6 +213,15 @@ impl Default for Sources {
 }
 
 impl Sources {
+    /// Makes the paths of these sources known process wide, as adding them does
+    /// (for sources read from a boot image)
+    pub(crate) fn register_paths_globally(&self) {
+        let mut mapping = GLOBAL_SOURCE_MAPPING.lock();
+        for (id, path) in &self.sources.paths {
+            mapping.insert(*id, path.clone());
+        }
+    }
+
     pub fn new() -> Self {
         Sources {
             sources: InterierSources::new(),

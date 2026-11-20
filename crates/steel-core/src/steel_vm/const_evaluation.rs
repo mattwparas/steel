@@ -211,6 +211,23 @@ impl<'a> ConstantEvaluatorManager<'a> {
         }
     }
 
+    /// The globals the runs found constant: defined to a constant, never set
+    pub fn learned_constants(
+        &self,
+        known: &HashMap<InternedString, SteelVal, FxBuildHasher>,
+    ) -> Vec<(InternedString, SteelVal)> {
+        let env = self.global_env.borrow();
+        env.bindings
+            .iter()
+            .filter(|(name, _)| {
+                !known.contains_key(*name)
+                    && !env.non_constant_bound.contains(*name)
+                    && !self.set_idents.contains(*name)
+            })
+            .map(|(name, value)| (*name, value.clone()))
+            .collect()
+    }
+
     pub fn run(&mut self, input: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
         self.changed = false;
         self.global_env.borrow_mut().position = 0;

@@ -241,7 +241,212 @@ pub struct Engine {
     #[cfg(feature = "dylibs")]
     dylibs: DylibContainers,
     pub(crate) id: EngineId,
+    // For a kernel image: what it ran to boot, which engines replay (see `BootImage`)
+    boot: Option<Arc<BootRecord>>,
 }
+
+/// While a boot image is made: what an engine is made to do, in order, so
+/// another can be made to do the same (see `BootStep`). A copy of a thread or
+/// an engine records nothing.
+#[derive(Default)]
+pub(crate) struct Recording(Option<Arc<parking_lot::Mutex<Vec<BootStep>>>>);
+
+impl Clone for Recording {
+    fn clone(&self) -> Self {
+        Recording(None)
+    }
+}
+
+impl BootStep {
+    // The step, its program reading `constants`
+    pub(crate) fn with_constants(&self, constants: &crate::compiler::constants::ConstantMap) -> BootStep {
+        let with = |program: &Executable| {
+            let mut program = program.clone();
+            program.constant_map = constants.clone();
+            program
+        };
+        match self {
+            BootStep::Run(program) => BootStep::Run(with(program)),
+            BootStep::Eval(program) => BootStep::Eval(with(program)),
+            other => other.clone(),
+        }
+    }
+}
+
+impl Recording {
+    pub(crate) fn start(&mut self) {
+        self.0 = Some(Default::default());
+    }
+
+    pub(crate) fn record(&self, step: impl FnOnce() -> BootStep) {
+        if let Some(steps) = &self.0 {
+            steps.lock().push(step());
+        }
+    }
+
+    // What was recorded, and stops recording
+    pub(crate) fn finish(&mut self) -> Vec<BootStep> {
+        self.0
+            .take()
+            .map(|steps| core::mem::take(&mut *steps.lock()))
+            .unwrap_or_default()
+    }
+}
+
+/// The programs `eval` compiled while a recording was made, which `eval` runs
+/// instead while the recording is replayed (`replay_steps`)
+#[derive(Default)]
+pub(crate) struct Replaying(Option<Arc<parking_lot::Mutex<(Vec<Executable>, usize)>>>);
+
+impl Clone for Replaying {
+    fn clone(&self) -> Self {
+        Replaying(None)
+    }
+}
+
+impl Replaying {
+    // The next one, during a replay
+    pub(crate) fn next(&self) -> Option<Executable> {
+        let replay = self.0.as_ref()?;
+        let mut replay = replay.lock();
+        let (programs, next) = &mut *replay;
+        let program = programs.get(*next)?.clone();
+        *next += 1;
+        Some(program)
+    }
+}
+
+/// Runs recorded steps in `engine` again. `eval` doesn't compile: it runs what
+/// it compiled when the steps were recorded, so a replay leaves the compiler as
+/// it is. A registered value comes from `registered`.
+pub(crate) fn replay_steps(
+    engine: &mut Engine,
+    steps: &[BootStep],
+    registered: &dyn Fn(&str) -> Result<SteelVal>,
+) -> Result<Vec<SteelVal>> {
+    let evals: Vec<Executable> = steps
+        .iter()
+        .filter_map(|step| match step {
+            BootStep::Eval(program) => Some(program.clone()),
+            _ => None,
+        })
+        .collect();
+    let replay = Arc::new(parking_lot::Mutex::new((evals, 0)));
+    engine.virtual_machine.replaying = Replaying(Some(replay.clone()));
+
+    let mut results = Vec::new();
+    let mut eval_index = 0;
+    let outcome = (|| {
+        for step in steps {
+            match step {
+                BootStep::Run(program) => {
+                    results = engine.virtual_machine.run_executable(program)?;
+                }
+                BootStep::Eval(program) => {
+                    // Run here only if no `Run` before ran it through `eval`
+                    let mut replay_state = replay.lock();
+                    if replay_state.1 <= eval_index {
+                        replay_state.1 = eval_index + 1;
+                        drop(replay_state);
+                        engine.virtual_machine.run_executable(program)?;
+                    }
+                    eval_index += 1;
+                }
+                BootStep::Cleared(_, slot) => {
+                    engine.virtual_machine.insert_binding(*slot, SteelVal::Void);
+                }
+                BootStep::Registered(name, slot) => {
+                    let value = registered(name)?;
+                    engine.virtual_machine.insert_binding(*slot, value);
+                }
+            }
+        }
+        Ok(())
+    })();
+    engine.virtual_machine.replaying = Replaying(None);
+    outcome.map(|()| results)
+}
+
+/// Something an engine was made to do while a boot image was made.
+#[derive(Clone)]
+pub(crate) enum BootStep {
+    /// Ran this program
+    Run(Executable),
+    /// `eval` compiled and ran this program: from the host, or inside the last
+    /// `Run` (a replay runs it in place of compiling, see `replay_steps`)
+    Eval(Executable),
+    /// The host set this global, in this slot, to void
+    Cleared(String, usize),
+    /// The host registered a value under this name, in this slot. The record can't
+    /// make the value again: whoever replays it supplies one.
+    Registered(String, usize),
+}
+
+pub(crate) mod boot_image;
+
+/// What `Engine::new_kernel` did to make a kernel image: the engine as it was with
+/// only the builtin modules registered, and the compiled programs it ran after.
+pub(crate) struct BootRecord {
+    builtins: Engine,
+    programs: Vec<Executable>,
+    // Copies of the functions the programs' compiles put in the constant map,
+    // taken before anything ran them (see `untouched_closures`)
+    closures: Vec<(usize, Gc<ByteCodeLambda>)>,
+}
+
+/// What engines made by `Engine::new` start from, built once per process (per
+/// thread without `sync`) for each pair of sandbox settings.
+///
+/// Compiling the prelude is most of the time it takes to make an engine, and
+/// the bytecode is the same each time. So it's compiled once, and each engine
+/// takes a copy of the compiler state that leaves and runs the compiled
+/// programs again, from the engine with only the builtins registered. That way
+/// every engine gets its own values (boxes, parameters, mutable structs), as
+/// if it had compiled the prelude itself. The macro kernel is copied
+/// (`Kernel::deep_clone`). `STEEL_BOOT_IMAGE=0` compiles the prelude in every
+/// engine instead.
+pub(crate) struct BootImage {
+    builtins: Engine,
+    programs: Vec<Executable>,
+    closures: Vec<(usize, Gc<ByteCodeLambda>)>,
+    // An engine that ran the programs. Engines copy its compiler and kernel.
+    booted: Engine,
+    // What compiling the prelude left in the expander's per-thread state, for
+    // engines made on other threads
+    expander: Vec<crate::parser::expand_visitor::ThreadExpanderState>,
+    // What the booted kernel's engine was made to do, from when it was made
+    pub(crate) kernel_steps: Vec<BootStep>,
+    // An image made from another (`derive_pass_image`) does these after its
+    // programs, with the values of the host modules it registers
+    steps: Vec<BootStep>,
+    host_modules: Vec<HostModule>,
+    // What the kernel's engine did after the base image's (`derive_pass_image`)
+    derived_kernel_steps: Vec<BootStep>,
+    // An image read as what it adds to another: `booted` is the other's engine,
+    // and each engine applies this to its copy of the compiler
+    delta: Option<Arc<boot_image::DerivedDelta>>,
+    // The checksum of the file this image is kept in, which an image saved as
+    // what it adds to this one names: one read from the cache, or stored there
+    stored_as: Option<u64>,
+}
+
+/// A builtin module an image registers after the prelude, made again by whoever
+/// replays it
+#[derive(Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum HostModule {
+    PassSupport,
+}
+
+impl HostModule {
+    fn module(self) -> BuiltInModule {
+        match self {
+            HostModule::PassSupport => crate::compiler::passes::steel_passes::pass_support_module(),
+        }
+    }
+}
+
+// The program the Steel passes' engine runs: its value is the registry's `passes-at`
+pub(crate) const PASS_ENGINE_PROGRAM: &str = "(require \"#%private/steel/passes\")\npasses-at\n";
 
 impl Engine {
     pub fn enter_safepoint<T, F: FnMut() -> T>(&mut self, mut thunk: F) -> T {
@@ -306,6 +511,7 @@ impl Clone for Engine {
             #[cfg(feature = "dylibs")]
             dylibs: self.dylibs.clone(),
             id: EngineId::new(),
+            boot: self.boot.clone(),
         }
     }
 }
@@ -442,6 +648,13 @@ impl<'a> LifetimeGuard<'a> {
 impl RegisterValue for Engine {
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
         let idx = self.virtual_machine.compiler.write().register(name);
+        self.virtual_machine.recording.record(|| {
+            if matches!(value, SteelVal::Void) {
+                BootStep::Cleared(name.to_string(), idx)
+            } else {
+                BootStep::Registered(name.to_string(), idx)
+            }
+        });
         self.virtual_machine.insert_binding(idx, value);
         self
     }
@@ -477,6 +690,82 @@ macro_rules! time {
     }};
 }
 
+std::thread_local! {
+    // Set while `Engine::new` makes the pass engine's image before any program
+    static PREPARING_PASS_IMAGE: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+    // Set while this thread builds a boot image
+    static BUILDING_BOOT_IMAGE: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+// The pass engine's image, made from the default engine's the first time a Steel
+// pass runs
+fn pass_boot_image() -> Result<Arc<BootImage>> {
+    #[cfg(feature = "sync")]
+    {
+        static IMAGE: OnceCell<core::result::Result<Arc<BootImage>, String>> = OnceCell::new();
+        IMAGE
+            .get_or_init(|| Engine::cached_pass_image().map(Arc::new).map_err(|e| e.to_string()))
+            .clone()
+            .map_err(|e| SteelErr::new(crate::rerrs::ErrorKind::Generic, e))
+    }
+    #[cfg(not(feature = "sync"))]
+    {
+        std::thread_local! {
+            static IMAGE: core::cell::RefCell<Option<core::result::Result<Arc<BootImage>, String>>> =
+                const { core::cell::RefCell::new(None) };
+        }
+        if let Some(image) = IMAGE.with(|image| image.borrow().clone()) {
+            return image.map_err(|e| SteelErr::new(crate::rerrs::ErrorKind::Generic, e));
+        }
+        let image = Engine::cached_pass_image().map(Arc::new).map_err(|e| e.to_string());
+        IMAGE.with(|slot| *slot.borrow_mut() = Some(image.clone()));
+        image.map_err(|e| SteelErr::new(crate::rerrs::ErrorKind::Generic, e))
+    }
+}
+
+// Set by `Engine::enable_boot_image_cache`: the directory, or None for the default
+// How many images this process read from the cache
+#[cfg(test)]
+pub(crate) static IMAGES_READ: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+static BOOT_IMAGE_CACHE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+
+pub(crate) fn boot_image_cache_requested() -> Option<&'static Option<PathBuf>> {
+    BOOT_IMAGE_CACHE.get()
+}
+
+// One boot image for each (engine sandbox, kernel sandbox), made the first time
+// an engine needs it
+#[cfg(feature = "sync")]
+fn boot_image(sandbox: bool, kernel_sandbox: bool) -> Arc<BootImage> {
+    static IMAGES: [OnceCell<Arc<BootImage>>; 4] = [
+        OnceCell::new(),
+        OnceCell::new(),
+        OnceCell::new(),
+        OnceCell::new(),
+    ];
+
+    IMAGES[(sandbox as usize) * 2 + kernel_sandbox as usize]
+        .get_or_init(|| Arc::new(Engine::cached_boot_image(sandbox, kernel_sandbox)))
+        .clone()
+}
+
+#[cfg(not(feature = "sync"))]
+fn boot_image(sandbox: bool, kernel_sandbox: bool) -> Arc<BootImage> {
+    std::thread_local! {
+        static IMAGES: core::cell::RefCell<[Option<Arc<BootImage>>; 4]> =
+            const { core::cell::RefCell::new([None, None, None, None]) };
+    }
+
+    let index = (sandbox as usize) * 2 + kernel_sandbox as usize;
+    if let Some(image) = IMAGES.with(|images| images.borrow()[index].clone()) {
+        return image;
+    }
+    let image = Arc::new(Engine::cached_boot_image(sandbox, kernel_sandbox));
+    IMAGES.with(|images| images.borrow_mut()[index] = Some(image.clone()));
+    image
+}
+
 static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<Arc<FxHashMap<InternedString, SteelMacro>>> =
     OnceCell::new();
 
@@ -487,21 +776,32 @@ pub(crate) fn set_default_prelude_macros(
     prelude_macros: FxHashMap<InternedString, SteelMacro>,
     sandbox: bool,
 ) {
+    // Set once: a loaded boot image may have set them, and a kernel image built
+    // after sets the same ones
     if cfg!(feature = "sync") {
         if sandbox {
-            STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX
-                .set(Arc::new(prelude_macros))
-                .unwrap();
+            let _ = STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX.set(Arc::new(prelude_macros));
         } else {
-            STATIC_DEFAULT_PRELUDE_MACROS
-                .set(Arc::new(prelude_macros))
-                .unwrap();
+            let _ = STATIC_DEFAULT_PRELUDE_MACROS.set(Arc::new(prelude_macros));
         }
     } else {
         DEFAULT_PRELUDE_MACROS.with(|x| {
             let mut guard = x.borrow_mut();
             *guard = Arc::new(prelude_macros);
         })
+    }
+}
+
+// The prelude macros set for this sandbox setting, for a boot image
+pub(crate) fn prelude_macros_for(sandbox: bool) -> Option<Arc<FxHashMap<InternedString, SteelMacro>>> {
+    if cfg!(feature = "sync") {
+        if sandbox {
+            STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX.get().cloned()
+        } else {
+            STATIC_DEFAULT_PRELUDE_MACROS.get().cloned()
+        }
+    } else {
+        Some(DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone()))
     }
 }
 
@@ -536,6 +836,8 @@ impl Engine {
 
         let mut compiler_copy = engine.virtual_machine.compiler.read().clone();
         compiler_copy.builtin_modules = engine.modules.clone();
+        // Its own macros: a shallow copy of the kernel shares its transformer tables
+        compiler_copy.kernel = compiler_copy.kernel.as_ref().map(Kernel::deep_clone);
         engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
 
         let constant_map = engine
@@ -563,6 +865,8 @@ impl Engine {
 
         let mut compiler_copy = engine.virtual_machine.compiler.read().clone();
         compiler_copy.builtin_modules = engine.modules.clone();
+        // Its own macros: a shallow copy of the kernel shares its transformer tables
+        compiler_copy.kernel = compiler_copy.kernel.as_ref().map(Kernel::deep_clone);
 
         engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
 
@@ -585,12 +889,8 @@ impl Engine {
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
-    pub(crate) fn new_kernel(sandbox: bool) -> Self {
-        log::debug!(target:"kernel", "Instantiating a new kernel");
-        #[cfg(feature = "profiling")]
-        let mut total_time = crate::time::Instant::now();
-        #[cfg(feature = "profiling")]
-        let mut now = crate::time::Instant::now();
+    // An engine with only the builtin modules registered, as a kernel image starts
+    fn builtins_only(sandbox: bool) -> Self {
         let sources = Sources::new();
         let modules = ModuleContainer::with_expected_capacity();
 
@@ -605,6 +905,7 @@ impl Engine {
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
+            boot: None,
         };
 
         time!(
@@ -613,11 +914,27 @@ impl Engine {
             register_builtin_modules(&mut vm, sandbox)
         );
 
+        vm
+    }
+
+    pub(crate) fn new_kernel(sandbox: bool) -> Self {
+        log::debug!(target:"kernel", "Instantiating a new kernel");
+        #[cfg(feature = "profiling")]
+        let mut total_time = crate::time::Instant::now();
+        let mut vm = Self::builtins_only(sandbox);
+
+        // Engines start from here and run the programs below again (`BootImage`)
+        let builtins = vm.deep_clone();
+        let mut programs = Vec::new();
+        let mut closures = Vec::new();
+
         time!(
             "engine-creation",
             "Loading the ALL_MODULES prelude code",
-            vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
-                .expect("loading ALL_MODULES failed")
+            programs.push(
+                vm.compile_and_run_keeping(crate::steel_vm::primitives::ALL_MODULES, &mut closures)
+                    .expect("loading ALL_MODULES failed")
+            )
         );
 
         // log::debug!(target: "kernel", "Registered modules in the kernel!: {:?}", now.elapsed());
@@ -628,9 +945,12 @@ impl Engine {
         let core_libraries = [crate::stdlib::PRELUDE];
 
         for core in core_libraries.into_iter() {
-            if let Err(e) = vm.compile_and_run_raw_program(core) {
-                vm.raise_error(e);
-                panic!("Loading the standard library failed");
+            match vm.compile_and_run_keeping(core, &mut closures) {
+                Ok(program) => programs.push(program),
+                Err(e) => {
+                    vm.raise_error(e);
+                    panic!("Loading the standard library failed");
+                }
             }
         }
 
@@ -650,6 +970,12 @@ impl Engine {
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Total kernel loading time: {:?}", total_time.elapsed());
+
+        vm.boot = Some(Arc::new(BootRecord {
+            builtins,
+            programs,
+            closures,
+        }));
 
         vm
     }
@@ -1192,6 +1518,7 @@ impl Engine {
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
+            boot: None,
         }
     }
 
@@ -1242,6 +1569,7 @@ impl Engine {
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
+            boot: None,
         };
 
         bootstrap_globals(&mut engine);
@@ -1311,20 +1639,7 @@ impl Engine {
 
     #[inline]
     pub fn new_sandboxed() -> Self {
-        let mut engine = fresh_kernel_image(true);
-
-        engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
-
-        #[cfg(feature = "profiling")]
-        let now = crate::time::Instant::now();
-
-        if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
-            raise_error(&engine.virtual_machine.compiler.read().sources, e);
-            panic!("This shouldn't happen!");
-        }
-
-        #[cfg(feature = "profiling")]
-        log::info!(target: "engine-creation", "Engine Creation: {:?}", now.elapsed());
+        let mut engine = Self::booted(true, Kernel::default_sandbox());
 
         // Block dylib loading for sandboxed instances
         engine.disallow_dylib_loading();
@@ -1541,7 +1856,7 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new() -> Self {
-        Self::with_kernel(Kernel::new())
+        Self::booted(false, Kernel::default_sandbox())
     }
 
     /// Like [`Engine::new`], but macros can do what programs can while they expand. Their
@@ -1556,7 +1871,7 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new_with_unsandboxed_macros() -> Self {
-        Self::with_kernel(Kernel::with_sandbox(false))
+        Self::booted(false, false)
     }
 
     /// Lets the modules that macros require with `(require (for-syntax ...))` use the
@@ -1570,29 +1885,467 @@ impl Engine {
         self
     }
 
-    fn with_kernel(kernel: Kernel) -> Self {
+    /// Keeps boot images in `dir` (by default `$XDG_CACHE_HOME/steel`, or
+    /// `~/.cache/steel`), so engines in later runs of this program start from the
+    /// image instead of compiling the prelude: about 12 ms instead of about 150 for
+    /// the first engine of a process. Off unless called, since it writes about 9 MB
+    /// per image to that directory, a new image whenever the program is rebuilt
+    /// (the eight newest are kept).
+    ///
+    /// Call it before making the first engine; images made before are not kept.
+    /// The first call decides. `STEEL_BOOT_IMAGE_CACHE=0` turns it off and `=1` on
+    /// whatever the program asks, and `STEEL_BOOT_IMAGE_DIR` picks the directory.
+    ///
+    /// ```no_run
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// Engine::enable_boot_image_cache(None);
+    /// let mut vm = Engine::new();
+    /// ```
+    pub fn enable_boot_image_cache(dir: Option<PathBuf>) {
+        let _ = BOOT_IMAGE_CACHE.set(dir);
+    }
+
+    // An engine with the prelude loaded: `sandbox` for the engine's builtins,
+    // `kernel_sandbox` for its macros'
+    fn booted(sandbox: bool, kernel_sandbox: bool) -> Self {
         #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
         {
             steel_rc::register_thread();
-        }
-        let mut engine = fresh_kernel_image(false);
-
-        {
-            engine.virtual_machine.compiler.write().kernel = Some(kernel);
         }
 
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
 
-        if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
-            raise_error(&engine.virtual_machine.compiler.read().sources, e);
-            panic!("This shouldn't happen!");
-        }
+        // An engine made while a boot image is built on this thread (the Steel
+        // passes' engine, with `STEEL_PASSES_ON_PRELUDE`) can't wait for it
+        let building = BUILDING_BOOT_IMAGE.with(|x| x.get());
+        let engine = if crate::config::config().boot_image && !building {
+            let image = boot_image(sandbox, kernel_sandbox);
+            Self::prepare_cached_pass_image(sandbox, kernel_sandbox);
+            Self::from_boot_image(&image)
+        } else {
+            Self::booting(sandbox, kernel_sandbox).0
+        };
 
         #[cfg(feature = "profiling")]
         log::info!(target: "engine-creation", "Engine Creation: {:?}", now.elapsed());
 
         engine
+    }
+
+    // An engine that compiles and runs the prelude itself, the program that is,
+    // and untouched copies of the functions its compile put in the constant map
+    fn booting(
+        sandbox: bool,
+        kernel_sandbox: bool,
+    ) -> (Self, Executable, Vec<(usize, Gc<ByteCodeLambda>)>) {
+        let mut engine = fresh_kernel_image(sandbox);
+        engine.virtual_machine.compiler.write().kernel = Some(Kernel::with_sandbox(kernel_sandbox));
+
+        let mut closures = Vec::new();
+        let prelude = crate::compiler::passes::steel_passes::with_rust_passes(|| {
+            engine.compile_and_run_keeping(PRELUDE_WITHOUT_BASE, &mut closures)
+        });
+
+        match prelude {
+            Ok(program) => (engine, program, closures),
+            Err(e) => {
+                raise_error(&engine.virtual_machine.compiler.read().sources, e);
+                panic!("This shouldn't happen!");
+            }
+        }
+    }
+
+    // A boot image from the cache, or built and kept there
+    fn cached_boot_image(sandbox: bool, kernel_sandbox: bool) -> BootImage {
+        let Some(cache) = boot_image::BootImageCache::new(sandbox, kernel_sandbox) else {
+            return Self::checked_boot_image(sandbox, kernel_sandbox);
+        };
+        if let Some(image) = cache.load() {
+            #[cfg(test)]
+            IMAGES_READ.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            return image;
+        }
+        let mut image = Self::build_boot_image(sandbox, kernel_sandbox);
+        image.stored_as = cache.store(&image, sandbox, kernel_sandbox);
+        image
+    }
+
+    // With the cache on, the pass engine's image is made (or read) right after
+    // the default one, before any program: scopes made after the default image
+    // are numbered in the order they're made, and a saved image's have to be
+    // free in the process that reads it
+    fn prepare_cached_pass_image(sandbox: bool, kernel_sandbox: bool) {
+        std::thread_local! {
+            static CHECKED: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+        }
+        if (sandbox, kernel_sandbox) != (false, Kernel::default_sandbox())
+            || CHECKED.with(|checked| checked.replace(true))
+        {
+            return;
+        }
+        if crate::compiler::passes::steel_passes::SteelPasses::builtin_engine_wanted()
+            && boot_image::BootImageCache::new(sandbox, kernel_sandbox).is_some()
+        {
+            let _ = PREPARING_PASS_IMAGE.with(|preparing| {
+                preparing.set(true);
+                let image = pass_boot_image();
+                preparing.set(false);
+                image
+            });
+        }
+    }
+
+    // The pass engine's image from the cache, or made and kept there. Kept only
+    // when made before any program (`prepare_cached_pass_image`): the scopes
+    // saved with it are numbered in the order they were made
+    fn cached_pass_image() -> Result<BootImage> {
+        let (sandbox, kernel_sandbox) = (false, Kernel::default_sandbox());
+        let base = boot_image(sandbox, kernel_sandbox);
+        let cache = boot_image::BootImageCache::new(sandbox, kernel_sandbox)
+            .map(|cache| cache.derived("passes"));
+        if let Some(image) = cache.as_ref().and_then(|cache| cache.load_derived(&base)) {
+            #[cfg(test)]
+            IMAGES_READ.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            // What compiling the passes leaves in this thread's expander state,
+            // as making the image would have
+            for expander in &image.expander {
+                expander.install();
+            }
+            return Ok(image);
+        }
+        let image = Self::derive_pass_image(&base)?;
+        if let Some(cache) = &cache {
+            if PREPARING_PASS_IMAGE.with(|preparing| preparing.get()) {
+                cache.store_derived(&image, &base);
+            }
+        } else if crate::config::config().boot_image_roundtrip {
+            let bytes = boot_image::SavedDerivedImage::save(&image, &base)
+                .and_then(|saved| saved.to_bytes())
+                .expect("saving the pass engine's image");
+            return boot_image::SavedDerivedImage::from_bytes(&bytes)
+                .and_then(|saved| saved.load(&base));
+        }
+        Ok(image)
+    }
+
+    // A boot image, saved and read back first with `STEEL_BOOT_IMAGE_ROUNDTRIP`
+    fn checked_boot_image(sandbox: bool, kernel_sandbox: bool) -> BootImage {
+        let image = Self::build_boot_image(sandbox, kernel_sandbox);
+        if !crate::config::config().boot_image_roundtrip {
+            return image;
+        }
+
+        let start = std::time::Instant::now();
+        let bytes = boot_image::SavedBootImage::save(&image, sandbox, kernel_sandbox)
+            .and_then(|saved| saved.to_bytes())
+            .expect("saving the boot image");
+        let saved_at = start.elapsed();
+        let loaded = boot_image::SavedBootImage::from_bytes(&bytes)
+            .and_then(|saved| saved.load())
+            .expect("reading the boot image back");
+        eprintln!(
+            "boot image round trip: {} bytes, saved in {:.1} ms, read and loaded in {:.1} ms",
+            bytes.len(),
+            saved_at.as_secs_f64() * 1000.0,
+            (start.elapsed() - saved_at).as_secs_f64() * 1000.0
+        );
+        loaded
+    }
+
+    fn build_boot_image(sandbox: bool, kernel_sandbox: bool) -> BootImage {
+        use crate::parser::expand_visitor::ThreadExpanderState;
+
+        struct Building(bool);
+        impl Drop for Building {
+            fn drop(&mut self) {
+                let was = self.0;
+                BUILDING_BOOT_IMAGE.with(|x| x.set(was));
+            }
+        }
+        let _building = Building(BUILDING_BOOT_IMAGE.with(|x| x.replace(true)));
+        let _no_module_cache = crate::compiler::module_cache::pause();
+
+        let foreign_before = ThreadExpanderState::foreign_expansions();
+        let (booted, prelude, prelude_closures) = crate::parser::kernel::recording_kernels(|| {
+            Self::booting(sandbox, kernel_sandbox)
+        });
+        let kernel_steps = booted
+            .virtual_machine
+            .compiler
+            .write()
+            .kernel
+            .as_mut()
+            .map(|kernel| kernel.engine.virtual_machine.recording.finish())
+            .unwrap_or_default();
+        let expander = ThreadExpanderState::capture(
+            booted
+                .virtual_machine
+                .compiler
+                .read()
+                .module_manager
+                .modules()
+                .keys()
+                .filter_map(|path| path.to_str())
+                .map(InternedString::from)
+                .collect::<Vec<_>>(),
+            &foreign_before,
+        );
+        let record = booted
+            .boot
+            .clone()
+            .expect("a kernel image keeps what it ran to boot");
+
+        let mut programs = record.programs.clone();
+        programs.push(prelude);
+        let mut closures = record.closures.clone();
+        closures.extend(prelude_closures);
+
+        BootImage {
+            builtins: record.builtins.deep_clone(),
+            programs,
+            closures,
+            booted,
+            expander: vec![expander],
+            kernel_steps,
+            steps: Vec::new(),
+            host_modules: Vec::new(),
+            derived_kernel_steps: Vec::new(),
+            delta: None,
+            stored_as: None,
+        }
+    }
+
+    /// An engine for the Steel compiler passes, and the registry's `passes-at`,
+    /// from an image made once: the default engine's, then the pass support
+    /// module and the passes. None when there is no boot image to start from.
+    pub(crate) fn pass_engine() -> Option<Result<(Engine, SteelVal)>> {
+        if !crate::config::config().boot_image || BUILDING_BOOT_IMAGE.with(|x| x.get()) {
+            return None;
+        }
+        let image = match pass_boot_image() {
+            Ok(image) => image,
+            Err(e) => return Some(Err(e)),
+        };
+        let (engine, results) = Self::replay_boot_image(&image);
+        Some(
+            results
+                .last()
+                .cloned()
+                .map(|passes_at| (engine, passes_at))
+                .ok_or_else(|| SteelErr::new(crate::rerrs::ErrorKind::Generic, "the pass registry didn't load".into())),
+        )
+    }
+
+    // The default engine's image, then the steps that make it the pass engine
+    fn derive_pass_image(base: &BootImage) -> Result<BootImage> {
+        use crate::parser::expand_visitor::ThreadExpanderState;
+
+        // Compiling the passes doesn't run them
+        let _in_pass_engine = crate::compiler::passes::steel_passes::InPassEngine::enter();
+        let _no_module_cache = crate::compiler::module_cache::pause();
+        let foreign_before = ThreadExpanderState::foreign_expansions();
+        let (mut engine, _) = Self::replay_boot_image(base);
+        // Compiling the passes runs phase 1 code in the kernel's engine
+        if let Some(kernel) = engine.virtual_machine.compiler.write().kernel.as_mut() {
+            kernel.engine.virtual_machine.recording.start();
+        }
+
+        let module = HostModule::PassSupport.module();
+        {
+            use crate::gc::ShareableMut;
+            if !module.module.read().context_functions.is_empty() {
+                stop!(Generic => "the pass support module can't be replayed");
+            }
+        }
+        let name = module.unreadable_name();
+        engine.register_module(module);
+        let slot = engine
+            .virtual_machine
+            .compiler
+            .read()
+            .symbol_map
+            .get(&InternedString::from(name.as_str()))?;
+
+        let mut closures = base.closures.clone();
+        let program = engine.compile_and_run_keeping(PASS_ENGINE_PROGRAM, &mut closures)?;
+
+        let derived_kernel_steps = engine
+            .virtual_machine
+            .compiler
+            .write()
+            .kernel
+            .as_mut()
+            .map(|kernel| kernel.engine.virtual_machine.recording.finish())
+            .unwrap_or_default();
+
+        let expander = ThreadExpanderState::capture(
+            engine
+                .virtual_machine
+                .compiler
+                .read()
+                .module_manager
+                .modules()
+                .keys()
+                .filter_map(|path| path.to_str())
+                .map(InternedString::from)
+                .collect::<Vec<_>>(),
+            &foreign_before,
+        );
+        let mut expanders = base.expander.clone();
+        expanders.push(expander);
+
+        let mut steps = base.steps.clone();
+        steps.push(BootStep::Registered(name, slot));
+        steps.push(BootStep::Run(program));
+        let mut host_modules = base.host_modules.clone();
+        host_modules.push(HostModule::PassSupport);
+
+        Ok(BootImage {
+            builtins: base.builtins.deep_clone(),
+            programs: base.programs.clone(),
+            closures,
+            booted: engine,
+            expander: expanders,
+            kernel_steps: base.kernel_steps.clone(),
+            steps,
+            host_modules,
+            derived_kernel_steps,
+            delta: None,
+            stored_as: None,
+        })
+    }
+
+    // An engine from the boot image: its own copy of the booted compiler and
+    // kernel, and its own values from running the prelude's programs again
+    fn from_boot_image(image: &BootImage) -> Self {
+        Self::replay_boot_image(image).0
+    }
+
+    // `from_boot_image`, with what the last program returned
+    fn replay_boot_image(image: &BootImage) -> (Self, Vec<SteelVal>) {
+        let _no_module_cache = crate::compiler::module_cache::pause();
+        // The thread that made the image has compiled the prelude; this one may not have
+        for expander in &image.expander {
+            expander.install();
+        }
+
+        let mut engine = image.builtins.deep_clone();
+
+        let mut compiler = image.booted.virtual_machine.compiler.read().clone();
+        compiler.builtin_modules = engine.modules.clone();
+        // Installed once the programs have run. Without a kernel the jit leaves
+        // functions alone, as it does while a kernel image boots: the compiler
+        // already counts the globals of every program as closed, which lets the jit
+        // bake in their values, and a slot a later program defines doesn't hold it
+        // yet. Functions are compiled when they're called after.
+        let kernel = match &image.delta {
+            Some(delta) => {
+                let mut copy = compiler;
+                let kernel = delta.apply(&mut copy).expect("applying the pass engine's image");
+                compiler = copy;
+                Some(kernel)
+            }
+            None => compiler.kernel.take().map(|kernel| kernel.deep_clone()),
+        };
+        compiler.constant_map = compiler.constant_map.deep_clone();
+        // Functions in the constant map are objects the jit compiles against one
+        // engine's globals, so each engine gets its own
+        for (index, closure) in &image.closures {
+            compiler
+                .constant_map
+                .replace(*index, SteelVal::Closure(Gc::new(closure.fresh_copy())));
+        }
+        let constants = compiler.constant_map.clone();
+        engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler));
+
+        #[cfg(feature = "biased")]
+        QueueHandle::register_thread();
+
+        let mut results = Vec::new();
+        let mut run = |engine: &mut Engine, program: &Executable| {
+            // Constants the programs refer to are in the engine's copy of the map
+            let mut program = program.clone();
+            program.constant_map = constants.clone();
+
+            match engine.virtual_machine.run_executable(&program) {
+                Ok(values) => results = values,
+                Err(e) => {
+                    raise_error(&engine.virtual_machine.compiler.read().sources, e);
+                    panic!("Running the prelude again failed");
+                }
+            }
+        };
+        for program in &image.programs {
+            run(&mut engine, program);
+        }
+        drop(run);
+        if !image.steps.is_empty() {
+            let steps: Vec<BootStep> = image
+                .steps
+                .iter()
+                .map(|step| step.with_constants(&constants))
+                .collect();
+            let modules = engine.modules.clone();
+            let registered = |name: &str| -> Result<SteelVal> {
+                let module = image
+                    .host_modules
+                    .iter()
+                    .map(|host| host.module())
+                    .find(|module| module.unreadable_name() == name)
+                    .expect("an image registers only its host modules");
+                modules.clone().insert(module.name(), module.clone());
+                module.into_steelval()
+            };
+            match replay_steps(&mut engine, &steps, &registered) {
+                Ok(values) => results = values,
+                Err(e) => {
+                    raise_error(&engine.virtual_machine.compiler.read().sources, e);
+                    panic!("Running the prelude again failed");
+                }
+            }
+        }
+
+        let mut compiler = engine.virtual_machine.compiler.write();
+        compiler.builtin_modules = engine.modules.clone();
+        compiler.kernel = kernel;
+        drop(compiler);
+
+        (engine, results)
+    }
+
+    // Compiles and runs a program like `compile_and_run_raw_program`, keeping it,
+    // and adds to `closures` copies of the functions the compile put in the
+    // constant map, taken before running the program can touch them
+    fn compile_and_run_keeping(
+        &mut self,
+        source: &'static str,
+        closures: &mut Vec<(usize, Gc<ByteCodeLambda>)>,
+    ) -> Result<Executable> {
+        #[cfg(feature = "biased")]
+        QueueHandle::register_thread();
+
+        let before = self.virtual_machine.compiler.read().constant_map.len();
+        let program = self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .compile_executable(source, None)
+        })?;
+
+        let constants = self.virtual_machine.compiler.read().constant_map.clone();
+        for index in before..constants.len() {
+            if let SteelVal::Closure(closure) = constants.get(index) {
+                closures.push((index, Gc::new(closure.fresh_copy())));
+            }
+        }
+
+        let executable = self.raw_program_to_executable(program)?;
+        self.gc_shadowed_roots();
+        self.virtual_machine.run_executable(&executable)?;
+
+        Ok(executable)
     }
 
     /// Adds a directory for the engine to resolve paths from.
@@ -2012,6 +2765,8 @@ impl Engine {
         program: RawProgramWithSymbols,
     ) -> Result<Executable> {
         let symbol_map_offset = self.virtual_machine.compiler.read().symbol_map.len();
+        // Only this build's replacements are rolled back
+        self.virtual_machine.compiler.write().symbol_map.clear_replaced();
 
         let result = program.build(
             "TestProgram".to_string(),
@@ -2025,6 +2780,8 @@ impl Engine {
             // Reset the compiled modules as well.
             guard.symbol_map.roll_back(symbol_map_offset);
             guard.module_manager.rollback_metadata();
+        } else {
+            self.virtual_machine.compiler.write().symbol_map.clear_replaced();
         }
 
         result
@@ -2073,6 +2830,10 @@ impl Engine {
     pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
         // TODO: Add hook here to check what values are now unreachable!
         let executable = self.raw_program_to_executable(program)?;
+
+        self.virtual_machine
+            .recording
+            .record(|| BootStep::Run(executable.clone()));
 
         self.gc_shadowed_roots();
 
@@ -3330,5 +4091,130 @@ mod resolver_tests {
             "expected `foo` to be unresolvable, got: {}",
             err
         );
+    }
+}
+
+#[cfg(test)]
+mod kernel_replay_check {
+    use super::*;
+
+    // How a value compares, loosely: functions by id, others by kind and printed form
+    fn describe(value: &SteelVal) -> String {
+        match value {
+            SteelVal::Closure(c) => format!("closure {}", c.id),
+            SteelVal::BoxedFunction(f) => format!("host fn {:?}", f.name()),
+            SteelVal::FuncV(_) | SteelVal::MutFunc(_) | SteelVal::BuiltIn(_) => "native".into(),
+            SteelVal::HeapAllocated(b) => format!("box {}", describe(&b.get())),
+            SteelVal::Custom(_) => format!("custom {}", value).chars().take(60).collect(),
+            other => {
+                let mut parts: Vec<String> = format!("{other}")
+                    .split('\n')
+                    .map(|x| x.trim().to_string())
+                    .collect();
+                // A hash table's entries print in no particular order
+                parts.sort();
+                parts.join(" ")
+            }
+        }
+    }
+
+    // A boot image saved to disk can't keep the macro kernel's engine, whose
+    // globals include the closures of the prelude's procedural macros. It keeps
+    // what the engine was made to do (`BootStep`) and does that again. This checks
+    // that doing so, then copying the plain globals calls changed (counters), gives
+    // the engine the prelude left: every global the same, apart from slots the
+    // collector freed in the original (they hold nothing code refers to).
+    #[test]
+    fn replaying_the_kernel_engine_gives_its_globals() {
+        // Built here: the cached image may have been read back, and keep no record
+        let image = Engine::build_boot_image(false, Kernel::default_sandbox());
+        let booted = image.booted.virtual_machine.compiler.read();
+        let kernel = booted.kernel.as_ref().unwrap();
+
+        let record = fresh_kernel_image(Kernel::default_sandbox())
+            .boot
+            .clone()
+            .unwrap();
+
+        let mut engine = record.builtins.deep_clone();
+        let mut compiler = kernel.engine.virtual_machine.compiler.read().clone();
+        compiler.builtin_modules = engine.modules.clone();
+        compiler.constant_map = compiler.constant_map.deep_clone();
+        let constants = compiler.constant_map.clone();
+        engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler));
+
+        let run = |engine: &mut Engine, program: &Executable| {
+            let mut program = program.clone();
+            program.constant_map = constants.clone();
+            engine.virtual_machine.run_executable(&program).unwrap();
+        };
+        for program in &record.programs {
+            run(&mut engine, program);
+        }
+        // The host functions, made in another engine and put in the slots they had
+        let mut scratch = record.builtins.deep_clone();
+        crate::parser::kernel::register_fresh_transformer_functions(&mut scratch);
+
+        let mut counts = (0, 0, 0, 0);
+        for step in &image.kernel_steps {
+            match step {
+                BootStep::Run(_) => counts.0 += 1,
+                BootStep::Cleared(..) => counts.1 += 1,
+                BootStep::Registered(..) => counts.2 += 1,
+                BootStep::Eval(_) => counts.3 += 1,
+            }
+        }
+        let steps: Vec<BootStep> = image
+            .kernel_steps
+            .iter()
+            .map(|step| step.with_constants(&constants))
+            .collect();
+        let before = engine.virtual_machine.compiler.read().symbol_map.len();
+        replay_steps(&mut engine, &steps, &|name| scratch.extract_value(name)).unwrap();
+        // Nothing is compiled again
+        assert_eq!(engine.virtual_machine.compiler.read().symbol_map.len(), before);
+        // The transformer functions are the only values the host registers
+        assert_eq!(counts.2, 5);
+        assert!(counts.0 + counts.3 > 0);
+
+        // Calls during expansion change plain globals (counters): copy those
+        let original = kernel.engine.virtual_machine.global_env.roots().to_vec();
+        let mut fixed = 0;
+        for (i, value) in original.iter().enumerate() {
+            let plain = matches!(
+                value,
+                SteelVal::IntV(_)
+                    | SteelVal::BoolV(_)
+                    | SteelVal::NumV(_)
+                    | SteelVal::CharV(_)
+                    | SteelVal::StringV(_)
+                    | SteelVal::SymbolV(_)
+            );
+            let same = engine.virtual_machine.global_env.roots().get(i) == Some(value);
+            if plain && !same {
+                fixed += 1;
+                engine.virtual_machine.insert_binding(i, value.clone());
+            }
+        }
+        let _ = fixed;
+
+        let replayed = engine.virtual_machine.global_env.roots();
+        let kernel_names = kernel.engine.virtual_machine.compiler.read().symbol_map.values().clone();
+        let mut differ = Vec::new();
+        for i in 0..original.len().max(replayed.len()) {
+            let booted_value = original.get(i);
+            if booted_value.is_some_and(crate::env::is_undefined_global) {
+                continue;
+            }
+            let a = booted_value.map(describe).unwrap_or_else(|| "<none>".into());
+            let b = replayed.get(i).map(describe).unwrap_or_else(|| "<none>".into());
+            if a != b {
+                differ.push(format!(
+                    "slot {i} {:?}: booted {a:.200} / replayed {b:.200}",
+                    kernel_names.get(i).map(|x| x.resolve())
+                ));
+            }
+        }
+        assert!(differ.is_empty(), "{}", differ.join("\n"));
     }
 }

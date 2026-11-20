@@ -186,10 +186,8 @@ impl GlobalName {
 
             let path = after[digits..]
                 .strip_prefix(MANGLER_SEPARATOR)
-                .and_then(|_| after[..digits].parse::<usize>().ok())
-                .and_then(|id| id.checked_sub(1))
-                .and_then(<lasso::Spur as lasso::Key>::try_from_usize)
-                .and_then(|key| crate::parser::interner::get_interner()?.try_resolve(&key));
+                .and_then(|_| after[..digits].parse::<u32>().ok())
+                .and_then(crate::compiler::modules::prefix_path_of);
 
             match path {
                 Some(path) => {
@@ -200,7 +198,7 @@ impl GlobalName {
                     parts.push(NamePart::Module {
                         path: path.to_string(),
                         origin: origins
-                            .by_prefix_path(path)
+                            .by_prefix_path(&path)
                             .map(|origin| (origin.root, origin.relative.clone())),
                     });
                     rest = &after[digits + MANGLER_SEPARATOR.len()..];
@@ -235,12 +233,7 @@ impl GlobalName {
                         .unwrap_or(path);
 
                     name.push_str(MANGLER_PREFIX);
-                    name.push_str(
-                        &InternedString::from_str(path)
-                            .get()
-                            .into_inner()
-                            .to_string(),
-                    );
+                    name.push_str(&crate::compiler::modules::prefix_number(path).to_string());
                     name.push_str(MANGLER_SEPARATOR);
                 }
             }
@@ -345,6 +338,9 @@ pub struct HeapSerializer<'a> {
     // Globals that are not defined here, and have to be from what was sent:
     // the sender's index and the one given to them here.
     globals_to_define: Vec<(usize, usize)>,
+    // Functions are made as they were written, with their ids and bodies (see
+    // `SerializationContext::verbatim`)
+    verbatim: bool,
 }
 
 impl<'a> HeapSerializer<'a> {
@@ -376,7 +372,14 @@ impl<'a> HeapSerializer<'a> {
             global_names,
             sent_globals,
             globals_to_define: Vec::new(),
+            verbatim: false,
         }
+    }
+
+    /// Functions made as they were written, see `verbatim`
+    pub(crate) fn verbatim(mut self) -> Self {
+        self.verbatim = true;
+        self
     }
 
     /// The function built for `sent` by an earlier value. It has no captures.
@@ -917,6 +920,30 @@ fn same_shape(made: &ByteCodeLambda, sent: &SerializedLambda) -> bool {
 // Puts together the value for `node`, whose contents have all been made.
 fn finish(ctx: &mut HeapSerializer, node: &SerializableSteelVal) -> Result<SteelVal> {
     match node {
+        // One function per id, with the body it was written with
+        SerializableSteelVal::Closure(c) if ctx.verbatim => {
+            if c.captures.is_empty() {
+                if let Some(made) = ctx.built_functions.get(&c.id) {
+                    return Ok(SteelVal::Closure(made.clone()));
+                }
+            }
+            let captures = c
+                .captures
+                .iter()
+                .map(|capture| ctx.built(*capture))
+                .collect::<Result<_>>()?;
+            let value = Gc::new(ByteCodeLambda::new(
+                c.id,
+                crate::steel_vm::vm::InstructionPointer::from(c.body_exp.clone()),
+                c.arity,
+                c.is_multi_arity,
+                captures,
+            ));
+            if c.captures.is_empty() {
+                ctx.built_functions.insert(c.id, value.clone());
+            }
+            Ok(SteelVal::Closure(value))
+        }
         SerializableSteelVal::Closure(c) => {
             // A function that closes over nothing is made once, however
             // many entries describe it.
@@ -1156,6 +1183,10 @@ pub struct SerializationContext<'a> {
     pub reachable_globals: rustc_hash::FxHashSet<usize>,
     pub reachable_structs: rustc_hash::FxHashSet<StructTypeDescriptor>,
     pub compiled_modules: &'a ModuleManager,
+    // Functions are written as they are, for the same engine's state: their ids
+    // and bodies kept, the constants and globals they refer to not sent along
+    // (a boot image, read back with `HeapSerializer::verbatim`)
+    pub(crate) verbatim: bool,
 
     // The table.
     pub(crate) nodes: Vec<SerializableSteelVal>,
@@ -1190,6 +1221,7 @@ impl<'a> SerializationContext<'a> {
             reachable_globals: rustc_hash::FxHashSet::default(),
             reachable_structs: rustc_hash::FxHashSet::default(),
             compiled_modules,
+            verbatim: false,
             nodes: Vec::new(),
             seen: rustc_hash::FxHashMap::default(),
             kept: Vec::new(),
@@ -1197,6 +1229,12 @@ impl<'a> SerializationContext<'a> {
             lists: rustc_hash::FxHashMap::default(),
             longest: rustc_hash::FxHashMap::default(),
         }
+    }
+
+    /// Functions written as they are, see `verbatim`
+    pub(crate) fn verbatim(mut self) -> Self {
+        self.verbatim = true;
+        self
     }
 
     /// Gives an entry that is already whole a place in the table.

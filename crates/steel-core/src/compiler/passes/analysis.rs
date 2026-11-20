@@ -2655,7 +2655,14 @@ struct FreshenBinders {
     renames: HashMap<InternedString, InternedString>,
 }
 
-static FRESHEN_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+// Names the boxing pass gives the value a `set!` stores
+pub(crate) static SET_BOX_VALUE_COUNTER: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+// Names `HoistCarBeforeCdr` binds
+pub(crate) static CAR_HOIST_COUNTER: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+pub(crate) static FRESHEN_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 impl FreshenBinders {
     fn run(l: &mut LambdaFunction) {
@@ -5563,9 +5570,10 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                 let name = ident.atom_identifier().unwrap();
 
                                                 if original_func_name == *name {
-                                                    let name = format!(
-                                                        "##{}-closure-lifting-{}",
-                                                        name, id
+                                                    let name = generated_name(
+                                                        |name, id| format!("##{}-closure-lifting-{}", name, id),
+                                                        name.resolve(),
+                                                        id,
                                                     );
 
                                                     // Replace these with a new name,
@@ -5730,6 +5738,40 @@ impl<'a> LiftPureFunctionsToGlobalScope<'a> {
     }
 }
 
+std::thread_local! {
+    // While a module is lowered on its own: its prefix, which the names of the
+    // globals the passes make for it end with, and how many it has made
+    static GENERATED_NAME_SUFFIX: core::cell::RefCell<(String, usize)> =
+        const { core::cell::RefCell::new((String::new(), 0)) };
+}
+
+/// Runs `f` with the globals the passes make named for the module with this
+/// prefix, and numbered within it: a module's names are then the same whichever
+/// process compiles it, so code inlined from it elsewhere keeps finding them
+pub(crate) fn with_generated_name_suffix<T>(prefix: Option<String>, f: impl FnOnce() -> T) -> T {
+    let suffix = prefix.map(|p| format!("@{p}")).unwrap_or_default();
+    let outer = GENERATED_NAME_SUFFIX.with(|s| s.replace((suffix, 0)));
+    let result = f();
+    GENERATED_NAME_SUFFIX.with(|s| *s.borrow_mut() = outer);
+    result
+}
+
+// A global's name: `make(name, id)` outside a module; in one, the name without
+// the renamer's marks and a number within the module, then the module
+fn generated_name(make: impl Fn(&str, String) -> String, name: &str, id: impl core::fmt::Display) -> String {
+    GENERATED_NAME_SUFFIX.with(|s| {
+        let mut s = s.borrow_mut();
+        if s.0.is_empty() {
+            return make(name, id.to_string());
+        }
+        s.1 += 1;
+        let base = name
+            .trim_start_matches('#')
+            .trim_end_matches(|c: char| c.is_ascii_digit() || c == '_');
+        format!("{}{}", make(&format!("##{base}"), s.1.to_string()), s.0)
+    })
+}
+
 struct ReplaceUnboxExpressions {
     unbox_var: InternedString,
     ident: ExprKind,
@@ -5757,6 +5799,83 @@ impl VisitorMutRefUnit for ReplaceUnboxExpressions {
                 }
 
                 self.visit_list(l)
+            }
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        })
+    }
+}
+
+// Every lifted function's rewrites in one walk: `(#%unbox v)` becomes the
+// function's name, and then a call to one of the names gets its captured
+// arguments. The same as running each replacer and then its call site modifier
+// over everything in turn: a replacer only touches `(#%unbox v)` forms, a
+// modifier only calls of its own name, and it looks at a call once the walk
+// below it is done, so after the head has been renamed. When two replacers
+// share a variable, the first does the replacing, as it would in turn.
+struct LiftedRewrites<'r, 'a> {
+    renames: FxHashMap<InternedString, ExprKind>,
+    calls: FxHashMap<InternedString, Vec<usize>>,
+    rewrites: &'r mut [(ReplaceUnboxExpressions, BoxedCallSiteModifier<'a>)],
+}
+
+impl<'r, 'a> LiftedRewrites<'r, 'a> {
+    fn new(rewrites: &'r mut [(ReplaceUnboxExpressions, BoxedCallSiteModifier<'a>)]) -> Self {
+        let mut renames = FxHashMap::default();
+        let mut calls: FxHashMap<InternedString, Vec<usize>> = FxHashMap::default();
+        for (index, (replacer, modifier)) in rewrites.iter().enumerate() {
+            renames
+                .entry(replacer.unbox_var)
+                .or_insert_with(|| replacer.ident.clone());
+            calls
+                .entry(InternedString::from(modifier.name.as_str()))
+                .or_default()
+                .push(index);
+        }
+        LiftedRewrites {
+            renames,
+            calls,
+            rewrites,
+        }
+    }
+}
+
+impl<'r, 'a> VisitorMutRefUnit for LiftedRewrites<'r, 'a> {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        crate::compiler::passes::with_stack(|| match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => {
+                crate::compiler::passes::with_stack(|| self.visit_lambda_function(l))
+            }
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => {
+                if l.first_ident().copied() == Some(*UNBOX) {
+                    if let Some(ident) = l.second_ident().and_then(|v| self.renames.get(v)) {
+                        *expr = ident.clone();
+                        return;
+                    }
+                }
+
+                self.visit_list(l);
+
+                let head = match &*expr {
+                    ExprKind::List(l) => l.first_ident().copied(),
+                    _ => None,
+                };
+                if let Some(indexes) = head.and_then(|head| self.calls.get(&head)) {
+                    for &index in indexes {
+                        let modifier = &mut self.rewrites[index].1;
+                        (modifier.func)(modifier.analysis, expr);
+                    }
+                }
             }
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
@@ -6070,8 +6189,11 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
                                 // with the right thing
 
                                 // Name the closure something mangled, but something we can refer to later
-                                let constructed_name = "##__lifted_pure_function".to_string()
-                                    + l.syntax_object_id.to_string().as_ref();
+                                let constructed_name = generated_name(
+                                    |_, id| format!("##__lifted_pure_function{}", id),
+                                    "",
+                                    l.syntax_object_id,
+                                );
 
                                 // Point the reference to a dummy list - this is just an ephemeral placeholder
                                 let mut dummy = ExprKind::List(List::new(ThinVec::new()));
@@ -7350,8 +7472,7 @@ impl SetBoxValueFirst {
             return;
         }
 
-        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let n = SET_BOX_VALUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let binding = ExprKind::atom(InternedString::from(format!("##%set-box-value{n}")));
 
         let mut location = SyntaxObject::default(TokenType::Let);
@@ -7717,8 +7838,7 @@ impl HoistCarBeforeCdr {
             return false;
         };
 
-        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let n = CAR_HOIST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let name = InternedString::from(format!("##%car-hoist{n}"));
         let binding = ExprKind::atom(name);
 
@@ -8768,7 +8888,7 @@ impl<'a> SemanticAnalysis<'a> {
                       funcs: &mut HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>>,
                       d: &Box<Define>| {
             let _ = this
-                .inline_handle_define(&estimator, threshold, funcs, d, &assigned, &changed, &known);
+                .inline_handle_define(&estimator, threshold, funcs, d, &assigned, &changed, &known, false);
         };
 
         for (_, module) in module_map {
@@ -9081,13 +9201,39 @@ impl<'a> SemanticAnalysis<'a> {
         // Only inline across the modules _if_ the number of expressions warrants it.
         // Otherwise this is a lot of needless allocation. A unit usually arrives as a
         // single begin, so the count has to come from inside it.
-        if top_level_expression_count(self.exprs) > 10 {
-            for (_, module) in module_map {
+        // A module's code is a program, however short (it is compiled on its own
+        // with `STEEL_SEPARATE_MODULES`)
+        let module_context: InternedString = "#%prim.#%push-module-context".into();
+        let is_module = self.exprs.iter().any(|expr| match expr {
+            ExprKind::Begin(b) => b
+                .exprs
+                .iter()
+                .any(|e| e.list().and_then(|l| l.first_ident()).copied() == Some(module_context)),
+            _ => false,
+        });
+        // The modules being lowered here are not other modules
+        let separate = crate::config::config().separate_modules;
+        let here: FxHashSet<PathBuf> = self
+            .exprs
+            .iter()
+            .filter_map(|expr| match expr {
+                ExprKind::Begin(b) => b.exprs.iter().find_map(|e| {
+                    let l = e.list()?;
+                    (l.first_ident().copied() == Some(module_context))
+                        .then(|| l.get(1)?.to_string_literal().map(PathBuf::from))?
+                }),
+                _ => None,
+            })
+            .collect();
+        if (separate && is_module) || top_level_expression_count(self.exprs) > 10 {
+            for (path, module) in module_map {
+                let other = separate && !here.contains(path);
                 if let Some(ast) = module.get_compiled_ast() {
                     match ast {
                         ExprKind::Define(d) => {
                             if let ControlFlow::Break(_) = self.inline_handle_define(
                                 &estimator, threshold, &mut funcs, &d, &assigned, &changed, &known,
+                                other,
                             ) {
                                 continue;
                             }
@@ -9098,7 +9244,7 @@ impl<'a> SemanticAnalysis<'a> {
                                 if let ExprKind::Define(d) = expr {
                                     if let ControlFlow::Break(_) = self.inline_handle_define(
                                         &estimator, threshold, &mut funcs, d, &assigned, &changed,
-                                        &known,
+                                        &known, other,
                                     ) {
                                         continue;
                                     }
@@ -9155,6 +9301,7 @@ impl<'a> SemanticAnalysis<'a> {
                     if let ExprKind::Define(d) = &self.exprs[top] {
                         let _ = self.inline_handle_define(
                             &estimator, threshold, &mut funcs, d, &assigned, &changed, &known,
+                            false,
                         );
                         if let Some(name) = d.name.atom_identifier() {
                             walked.insert(*name);
@@ -9176,7 +9323,7 @@ impl<'a> SemanticAnalysis<'a> {
                             if let ExprKind::Define(d) = &b.exprs[inner] {
                                 let _ = self.inline_handle_define(
                                     &estimator, threshold, &mut funcs, d, &assigned, &changed,
-                                    &known,
+                                    &known, false,
                                 );
                                 if let Some(name) = d.name.atom_identifier() {
                                     walked.insert(*name);
@@ -9249,6 +9396,10 @@ impl<'a> SemanticAnalysis<'a> {
         assigned: &FxHashSet<InternedString>,
         changed: &Rc<Cell<bool>>,
         known: &Rc<FxHashSet<InternedString>>,
+        // A definition in another module lowered before this one, with
+        // `STEEL_SEPARATE_MODULES`: it runs before any of this code, so every call
+        // can have it, not only those after it
+        from_other_module: bool,
     ) -> ControlFlow<()> {
         let name = if let Some(name) = d.name.atom_syntax_object() {
             name
@@ -9289,7 +9440,7 @@ impl<'a> SemanticAnalysis<'a> {
             // So it is judged by the size of the clause the call selects.
             if !size.is_some_and(|count| count < threshold) {
                 if let Some(dispatch) = ArityDispatch::of(l, estimator) {
-                    let original_id = l.syntax_object_id;
+                    let original_id = if from_other_module { 0 } else { l.syntax_object_id };
                     let l = l.clone();
                     let changed = Rc::clone(changed);
 
@@ -9322,7 +9473,7 @@ impl<'a> SemanticAnalysis<'a> {
             if !size.is_some_and(|count| count < threshold) && known_function_args_enabled() {
                 let called = CalledParams::of(l);
                 if called.called.iter().any(|c| *c) && called.size < known_function_args_size() {
-                    let original_id = l.syntax_object_id;
+                    let original_id = if from_other_module { 0 } else { l.syntax_object_id };
                     let params = l.args.len();
                     let rest = l.rest;
                     let l = l.clone();
@@ -9370,7 +9521,7 @@ impl<'a> SemanticAnalysis<'a> {
 
             if let Some(count) = size {
                 if count < threshold {
-                    let original_id = l.syntax_object_id;
+                    let original_id = if from_other_module { 0 } else { l.syntax_object_id };
                     let l = l.clone();
 
                     let changed = Rc::clone(changed);
@@ -10804,17 +10955,14 @@ impl<'a> SemanticAnalysis<'a> {
 
             let exprs = &mut *self.exprs;
 
-            for (replacer, callsite_modifier) in pending_replacers.iter_mut() {
-                for expr in lifted_functions.iter_mut() {
-                    replacer.visit(expr);
-                    callsite_modifier.visit(expr);
-                }
-
-                for expr in exprs.iter_mut() {
-                    replacer.visit(expr);
-                    callsite_modifier.visit(expr);
-                }
+            let mut rewrites = LiftedRewrites::new(pending_replacers);
+            for expr in lifted_functions.iter_mut() {
+                rewrites.visit(expr);
             }
+            for expr in exprs.iter_mut() {
+                rewrites.visit(expr);
+            }
+
         }
 
         if lift_dead_captures_enabled() {
@@ -10892,13 +11040,27 @@ impl<'a> SemanticAnalysis<'a> {
                 .collect::<SmallVec<[_; 8]>>();
 
             for id in ids {
+                // One name for the definition and every use
+                let Some(original) = local_functions.iter().find_map(|f| match f {
+                    ExprKind::Define(d) => d
+                        .name
+                        .atom_syntax_object()
+                        .filter(|syn| syn.syntax_object_id == id)
+                        .and(d.name.atom_identifier().copied()),
+                    _ => None,
+                }) else {
+                    continue;
+                };
+                let lifted: InternedString = generated_name(
+                    |name, id| format!("##lambda-lifting##{}{}", name, id),
+                    original.resolve(),
+                    id.0,
+                )
+                .into();
                 let mut find_call_site_by_id =
                     FindUsages::new(id, &self.analysis, |_: &Analysis, usage: &mut Atom| {
                         if let Some(ident) = usage.ident_mut() {
-                            *ident = ("##lambda-lifting##".to_string()
-                                + ident.resolve()
-                                + id.0.to_string().as_str())
-                            .into();
+                            *ident = lifted;
                             true
                         } else {
                             false
@@ -10922,10 +11084,7 @@ impl<'a> SemanticAnalysis<'a> {
                         }
 
                         if let Some(name) = define.name.atom_identifier_mut() {
-                            *name = ("##lambda-lifting##".to_string()
-                                + name.resolve()
-                                + id.0.to_string().as_str())
-                            .into();
+                            *name = lifted;
                         } else {
                             unreachable!("This should explicitly be an identifier here - perhaps a macro was invalid?");
                         }
@@ -11111,6 +11270,65 @@ mod analysis_pass_tests {
     };
 
     use super::*;
+
+    // Without `STEEL_SEPARATE_MODULES` a short program doesn't inline across
+    // modules, a module of its own or not
+    #[test]
+    fn short_programs_dont_inline_across_modules() {
+        if crate::config::config().separate_modules {
+            return;
+        }
+        let mut engine = crate::steel_vm::engine::Engine::new();
+        engine.register_steel_module(
+            "inline-check/tiny".to_string(),
+            "(provide tiny-add) (define (tiny-add x) (+ x 1))".to_string(),
+        );
+        engine.register_steel_module(
+            "inline-check/user".to_string(),
+            "(require \"inline-check/tiny\") (provide g) (define (g y) (tiny-add y))".to_string(),
+        );
+        engine.run("(require \"inline-check/tiny\")").unwrap();
+        // A short compile: one small module and two forms
+        let lowered = engine
+            .emit_expanded_ast("(require \"inline-check/user\") (g 1)", None)
+            .unwrap();
+        let text: String = lowered.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n");
+        let g = text
+            .split("(define ")
+            .find(|d| d.contains("__g "))
+            .unwrap_or_else(|| panic!("no g:\n{text}"));
+        assert!(g.contains("tiny-add"), "tiny-add was inlined into g:\n{text}");
+    }
+
+    // Inside a module lowered on its own, a lifted function's definition and
+    // its uses get one name between them
+    #[test]
+    fn generated_names_in_a_module_match_their_uses() {
+        let script = r#"
+(define (f x)
+  (define (g y) (+ y 1))
+  (define (h y) (* (g y) 2))
+  (list (g x) (h x) (g (g x))))
+"#;
+        let mut exprs = Parser::parse(script).unwrap();
+        with_generated_name_suffix(Some("##mm999__%#__".to_string()), || {
+            let mut analysis = SemanticAnalysis::new(&mut exprs);
+            analysis.lift_pure_local_functions();
+        });
+        let text: String = exprs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n");
+        let names: std::collections::BTreeSet<&str> = text
+            .split(|c: char| c.is_whitespace() || c == '(' || c == ')')
+            .filter(|w| w.starts_with("##lambda-lifting##"))
+            .collect();
+        assert!(names.len() >= 2, "g and h are lifted:\n{text}");
+        for name in &names {
+            assert!(name.ends_with("@##mm999__%#__"), "{name}");
+            assert!(
+                text.contains(&format!("(define {name}")),
+                "{name} is used but not defined:\n{text}"
+            );
+        }
+    }
 
     #[test]
     fn test_unused_arguments() {

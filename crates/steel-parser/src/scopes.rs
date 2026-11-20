@@ -28,10 +28,26 @@ fn lock<T>(mutex: &Mutex<T>) -> spin::MutexGuard<'_, T> {
     mutex.lock()
 }
 
-#[derive(
-    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Ord, PartialOrd, Default,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Ord, PartialOrd, Default)]
 pub struct Scope(pub u32);
+
+impl Serialize for Scope {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[cfg(feature = "std")]
+        crate::tables::write_scope(*self);
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Scope {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let scope = Scope(u32::deserialize(deserializer)?);
+        #[cfg(feature = "std")]
+        return Ok(crate::tables::relocate_scope(scope));
+        #[cfg(not(feature = "std"))]
+        Ok(scope)
+    }
+}
 
 static SCOPE_COUNTER: AtomicU32 = AtomicU32::new(1);
 
@@ -39,6 +55,50 @@ static SCOPE_COUNTER: AtomicU32 = AtomicU32::new(1);
 #[allow(clippy::type_complexity)]
 static MODULES: Lazy<Mutex<(FxHashMap<String, Scope>, FxHashMap<Scope, String>)>> =
     Lazy::new(Default::default);
+
+/// The number the next scope gets
+pub fn scope_counter() -> u32 {
+    SCOPE_COUNTER.load(Ordering::Relaxed)
+}
+
+/// Makes later scopes number at least `n`, so they differ from scopes saved
+/// elsewhere (a boot image)
+pub fn raise_scope_counter(n: u32) {
+    SCOPE_COUNTER.fetch_max(n, Ordering::Relaxed);
+}
+
+/// Every module's scope
+pub fn module_scopes() -> Vec<(String, Scope)> {
+    lock(&MODULES)
+        .0
+        .iter()
+        .map(|(name, scope)| (name.clone(), *scope))
+        .collect()
+}
+
+/// Gives modules the scopes they had where `scopes` was saved. False, with
+/// nothing changed, if a module already has a different scope here.
+pub fn restore_module_scopes(scopes: &[(String, Scope)]) -> bool {
+    let mut modules = lock(&MODULES);
+    let conflict = scopes.iter().any(|(name, scope)| {
+        modules
+            .0
+            .get(name)
+            .is_some_and(|existing| existing != scope)
+            || modules
+                .1
+                .get(scope)
+                .is_some_and(|existing| existing != name)
+    });
+    if conflict {
+        return false;
+    }
+    for (name, scope) in scopes {
+        modules.0.insert(name.clone(), *scope);
+        modules.1.insert(*scope, name.clone());
+    }
+    true
+}
 
 // The next scope number, which has to stay below the flag bits
 fn next_scope() -> u32 {
@@ -105,6 +165,22 @@ impl Scope {
         self.0 & Self::MODULE == Self::MODULE
     }
 
+    /// The scope with the same kind (binding, introduction, use site, module) and
+    /// this time
+    pub fn with_time(self, time: u32) -> Self {
+        Scope((self.0 & Self::MODULE) | time)
+    }
+
+    /// Reserves `count` scope numbers in a row, giving the first
+    pub fn reserve(count: u32) -> u32 {
+        let start = SCOPE_COUNTER.fetch_add(count, Ordering::Relaxed);
+        assert!(
+            start + count < 1 << 30,
+            "out of scopes: more than 2^30 made in this process"
+        );
+        start
+    }
+
     // Scopes made later have later times
     pub fn time(self) -> u32 {
         self.0 & !Self::MODULE
@@ -151,6 +227,31 @@ impl PartialOrd for ScopeSetId {
 impl Ord for ScopeSetId {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.serial().cmp(&other.serial())
+    }
+}
+
+// A set is written as its scopes in order, and read back by interning them, so
+// it is the same set as any other with those scopes
+impl Serialize for ScopeSetId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[cfg(feature = "std")]
+        if let Some(index) = crate::tables::write_set(self) {
+            return index.serialize(serializer);
+        }
+        self.scopes().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ScopeSetId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[cfg(feature = "std")]
+        if crate::tables::reading_strings() {
+            let index = u32::deserialize(deserializer)?;
+            return crate::tables::read_set(index)
+                .ok_or_else(|| serde::de::Error::custom("a scope set not in the table"));
+        }
+        let scopes = Vec::<Scope>::deserialize(deserializer)?;
+        Ok(ScopeSetId::of_sorted(&scopes))
     }
 }
 

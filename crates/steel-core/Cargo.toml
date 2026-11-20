@@ -76,6 +76,8 @@ cranelift = { version = "0.136", optional = true }
 cranelift-module = { version = "0.136", optional = true }
 cranelift-jit = { version = "0.136", optional = true }
 cranelift-native = { version = "0.136", optional = true }
+# Experiment: Cranelift's per-function cache of compiled code (STEEL_JIT_CODE_CACHE)
+cranelift-codegen = { version = "0.136", optional = true, features = ["incremental-cache"] }
 
 anyhow = { version = "1", optional = true }
 
@@ -206,6 +208,7 @@ jit2 = [
     "dep:cranelift-module",
     "dep:cranelift-jit",
     "dep:cranelift-native",
+    "dep:cranelift-codegen",
     # Linux only perf integration, these do nothing on other targets
     "dep:wasmtime-jit-debug",
     "dep:object",

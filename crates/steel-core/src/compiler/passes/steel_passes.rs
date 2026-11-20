@@ -46,6 +46,9 @@ std::thread_local! {
     // Set while the pass engine is made or used: code it compiles doesn't run passes
     static IN_PASS_ENGINE: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 
+    // Set while an engine loads its prelude, which is compiled with the Rust passes
+    static RUST_PASSES_ONLY: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+
     // The pass engine compilers on this thread share when they load only the
     // built-in passes and STEEL_PASS_MODULES, or why it didn't load. Never
     // dropped: an engine dropped while the thread exits can reach thread locals
@@ -54,10 +57,10 @@ std::thread_local! {
         const { core::mem::ManuallyDrop::new(core::cell::RefCell::new(None)) };
 }
 
-struct InPassEngine(bool);
+pub(crate) struct InPassEngine(bool);
 
 impl InPassEngine {
-    fn enter() -> Self {
+    pub(crate) fn enter() -> Self {
         InPassEngine(IN_PASS_ENGINE.with(|flag| flag.replace(true)))
     }
 }
@@ -67,6 +70,28 @@ impl Drop for InPassEngine {
         let was = self.0;
         IN_PASS_ENGINE.with(|flag| flag.set(was));
     }
+}
+
+/// Runs `f` with compilation using only the Rust passes, unless
+/// `STEEL_PASSES_ON_PRELUDE` is set. For the prelude: the Rust passes give the
+/// same bytecode, and the Steel ones (and loading their engine) take most of the
+/// time an engine takes to start.
+pub(crate) fn with_rust_passes<T>(f: impl FnOnce() -> T) -> T {
+    if crate::config::config().passes_on_prelude {
+        return f();
+    }
+
+    struct Restore(bool);
+
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let was = self.0;
+            RUST_PASSES_ONLY.with(|flag| flag.set(was));
+        }
+    }
+
+    let _restore = Restore(RUST_PASSES_ONLY.with(|flag| flag.replace(true)));
+    f()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,6 +184,25 @@ impl SteelPasses {
         passes
     }
 
+    /// Whether compiling would load the pass engine with only the built-in
+    /// passes, going by the settings
+    pub(crate) fn builtin_engine_wanted() -> bool {
+        let config = crate::config::config();
+        if config.pass_modules.as_deref().is_some_and(|m| !m.trim().is_empty()) {
+            return false;
+        }
+        let mut passes = SteelPasses::default();
+        for entry in config.passes.iter().flat_map(|s| s.split(',')) {
+            if let Some((name, mode)) = entry
+                .split_once('=')
+                .and_then(|(name, mode)| Some((name.trim(), PassMode::parse(mode.trim())?)))
+            {
+                passes.set_mode(name, mode);
+            }
+        }
+        passes.wanted()
+    }
+
     pub(crate) fn set_mode(&mut self, name: &str, mode: PassMode) {
         if name == "*" {
             self.all = Some(mode);
@@ -192,7 +236,11 @@ impl SteelPasses {
 
     // Whether passes can run in this compiler now
     fn available(&self, kernel: bool) -> bool {
-        kernel && self.wanted() && !self.failed && !IN_PASS_ENGINE.with(|f| f.get())
+        kernel
+            && self.wanted()
+            && !self.failed
+            && !IN_PASS_ENGINE.with(|f| f.get())
+            && !RUST_PASSES_ONLY.with(|f| f.get())
     }
 
     fn mode(&self, pass: &Pass) -> PassMode {
@@ -245,12 +293,23 @@ impl SteelPasses {
 
     fn load_engine(&self) -> Result<LoadedEngine> {
         let _in_pass_engine = InPassEngine::enter();
+        // The built-in passes alone: from an image made once
+        if self.sources.is_empty() && self.modules.is_empty() {
+            if let Some(loaded) = Engine::pass_engine() {
+                let (engine, passes_at) = loaded?;
+                return Ok(std::sync::Arc::new(std::sync::Mutex::new((engine, passes_at))));
+            }
+        }
         let mut engine = Engine::new();
         engine.register_module(pass_support_module());
         for (name, source) in &self.sources {
             engine.register_steel_module(name.clone(), source.clone());
         }
-        let mut program = String::from("(require \"#%private/steel/passes\")\n");
+        let mut program = String::from(
+            crate::steel_vm::engine::PASS_ENGINE_PROGRAM
+                .strip_suffix("passes-at\n")
+                .unwrap(),
+        );
         for module in &self.modules {
             program.push_str(&format!("(require {module:?})\n"));
         }
@@ -660,7 +719,7 @@ impl SteelPasses {
 
 // Rust helpers for passes, only in the pass engine. `#%private/steel/passes`
 // provides them.
-fn pass_support_module() -> crate::steel_vm::builtin::BuiltInModule {
+pub(crate) fn pass_support_module() -> crate::steel_vm::builtin::BuiltInModule {
     use crate::rvals::Syntax;
     use crate::steel_vm::register_fn::RegisterFn;
 

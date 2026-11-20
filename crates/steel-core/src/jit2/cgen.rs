@@ -119,14 +119,20 @@ pub struct JIT {
 
     function_map: OwnedFunctionMap,
 
-    names: HashMap<u32, String>,
+    // By function id and the environment the code was compiled against (see
+    // `jit_name`)
+    names: HashMap<(u32, u64), String>,
+    // The environment of the function being compiled
+    current_env: u64,
 
     // Names that made it all the way through define_function. `compile` declares a
     // name before it translates, so a failed compile leaves a declaration with no
     // body, and passing that to get_finalized_function panics.
     defined: HashSet<String>,
 
-    function_return_types: HashMap<u32, HashSet<InferredType>>,
+    // By function and environment: engines made from one image share ids, and
+    // what a function returns can depend on the globals baked into it
+    function_return_types: HashMap<(u32, u64), HashSet<InferredType>>,
 
     /// Whether the next `translate` may walk lists as cursors. Set around the
     /// specialized-copy compile only, and cleared again when that translation
@@ -583,6 +589,11 @@ impl Default for JIT {
             ArenaMemoryProvider::new_with_size(arena_mib << 20)
                 .expect("failed to reserve JIT code arena"),
         ));
+        // `STEEL_JIT_NAMED_ADDRESSES`: `addr:<hex>` is that address
+        builder.symbol_lookup_fn(Box::new(|name| {
+            let address = u64::from_str_radix(name.strip_prefix("addr:")?, 16).ok()?;
+            Some(address as usize as *const u8)
+        }));
 
         // How to take the if branch - this will return a boolean. 1 = true, 0 = false
 
@@ -656,6 +667,7 @@ impl Default for JIT {
             module,
             function_map,
             names: Default::default(),
+            current_env: 0,
             defined: Default::default(),
             function_return_types: Default::default(),
             #[cfg(target_os = "linux")]
@@ -1938,6 +1950,129 @@ pub(crate) fn jit_leak<T: Clone + 'static>(value: &T) -> T {
     })
 }
 
+// `STEEL_JIT_CODE_CACHE` (experiment): `define_function`, with Cranelift's own
+// cache of compiled functions kept on disk. A function is looked up by its IR
+// and the target, so a hit is the code that IR compiles to.
+fn define_function_cached(
+    module: &mut JITModule,
+    id: FuncId,
+    ctx: &mut codegen::Context,
+) -> cranelift_module::ModuleResult<()> {
+    let config = crate::config::config();
+    if config.jit_named_addresses {
+        name_addresses(module, &mut ctx.func)?;
+    }
+    let Some(mut store) = (!ctx.want_disasm && config.jit_code_cache)
+        .then(super::code_cache::CodeCacheStore::open)
+        .flatten()
+    else {
+        return module.define_function(id, ctx);
+    };
+    let start = std::time::Instant::now();
+    let hit = ctx
+        .compile_with_cache(
+            module.isa(),
+            &mut store,
+            &mut cranelift_codegen::control::ControlPlane::default(),
+        )
+        .map_err(|e| cranelift_module::ModuleError::Compilation(e.inner))?
+        .1;
+    let compiled = ctx.compiled_code().unwrap();
+    let alignment = compiled.buffer.alignment as u64;
+    let relocs: Vec<_> = compiled
+        .buffer
+        .relocs()
+        .iter()
+        .map(|r| cranelift_module::ModuleReloc::from_mach_reloc(r, &ctx.func, id))
+        .collect();
+    let bytes = compiled.code_buffer().to_vec();
+    if config.jit_code_cache_log {
+        eprintln!(
+            "jit-cache: {} us {} bytes {}",
+            if hit { "hit" } else { "miss" },
+            start.elapsed().as_micros(),
+            bytes.len()
+        );
+    }
+    module.define_function_bytes(id, alignment, &bytes, &relocs)
+}
+
+// `STEEL_JIT_NAMED_ADDRESSES` (experiment): every 64-bit constant that is an
+// address (inside memory the process has mapped) becomes the address of a
+// symbol named for it, as code that names what it bakes in (instead of its
+// address) would be. The value is the same.
+fn name_addresses(
+    module: &mut JITModule,
+    func: &mut cranelift::codegen::ir::Function,
+) -> cranelift_module::ModuleResult<()> {
+    use cranelift::codegen::ir::{InstructionData, Opcode};
+    // The mapped ranges (sorted, as the file lists them), read again for each
+    // function: the heap grows. Linux only.
+    let Ok(maps) = std::fs::read_to_string("/proc/self/maps") else {
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| eprintln!("STEEL_JIT_NAMED_ADDRESSES needs /proc/self/maps; doing nothing"));
+        return Ok(());
+    };
+    let mapped: Vec<(u64, u64)> = maps
+        .lines()
+        .filter_map(|line| {
+            let (start, end) = line.split_whitespace().next()?.split_once('-')?;
+            Some((u64::from_str_radix(start, 16).ok()?, u64::from_str_radix(end, 16).ok()?))
+        })
+        .collect();
+    let is_address = |value: u64| {
+        let i = mapped.partition_point(|(start, _)| *start <= value);
+        i > 0 && value < mapped[i - 1].1
+    };
+    let mut named: HashMap<u64, cranelift::codegen::ir::GlobalValue> = HashMap::new();
+    let mut sites = Vec::new();
+    for block in func.layout.blocks() {
+        for inst in func.layout.block_insts(block) {
+            if let InstructionData::UnaryImm {
+                opcode: Opcode::Iconst,
+                imm,
+            } = func.dfg.insts[inst]
+            {
+                let value = imm.bits() as u64;
+                let result = func.dfg.first_result(inst);
+                if func.dfg.value_type(result) == types::I64 && is_address(value) {
+                    sites.push((inst, value));
+                }
+            }
+        }
+    }
+    for (inst, value) in sites {
+        let global = match named.get(&value) {
+            Some(global) => *global,
+            None => {
+                let data = module.declare_data(&format!("addr:{value:x}"), Linkage::Import, false, false)?;
+                let global = module.declare_data_in_func(data, func);
+                named.insert(value, global);
+                global
+            }
+        };
+        // The result keeps its value and type
+        func.dfg.insts[inst] = InstructionData::UnaryGlobalValue {
+            opcode: Opcode::SymbolValue,
+            global_value: global,
+        };
+    }
+    Ok(())
+}
+
+/// The name the jit compiles a function under: its id and the environment it
+/// is compiled against. Code bakes in values from that environment's globals,
+/// so engines with the same function ids (clones of one image, or the same
+/// boot programs run in each) must not share it.
+pub(crate) fn jit_name(id: u32, env: u64) -> String {
+    format!("{id}@{env}")
+}
+
+fn parse_jit_name(name: &str) -> (u32, u64) {
+    let (id, env) = name.split_once('@').unwrap_or((name, "0"));
+    (id.parse().unwrap(), env.parse().unwrap_or(0))
+}
+
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct JitFnPointer(pub(crate) NonNull<u8>);
@@ -2132,7 +2267,7 @@ impl JIT {
         builder.seal_all_blocks();
         builder.finalize(frontend_config);
 
-        self.module.define_function(func_id, &mut self.ctx).unwrap();
+        define_function_cached(&mut self.module, func_id, &mut self.ctx).unwrap();
         self.module.clear_context(&mut self.ctx);
         self.module.finalize_definitions().unwrap();
         self.module.get_finalized_function(func_id)
@@ -2173,7 +2308,9 @@ impl JIT {
         top_level_name: Option<InternedString>,
         closed_globals: &HashSet<usize>,
     ) -> Result<*const u8, String> {
-        let id = str::parse::<u32>(&name).unwrap();
+        // `<function id>@<environment id>`, see `jit_name`
+        let (id, env) = parse_jit_name(&name);
+        self.current_env = env;
 
         // `STEEL_JIT_LOG` prints candidates by id; this prints their names, for
         // use with `STEEL_JIT_SKIP` when bisecting.
@@ -2204,7 +2341,7 @@ impl JIT {
             format!("{}_inner", name)
         };
 
-        self.names.insert(id, inner_name.clone());
+        self.names.insert((id, env), inner_name.clone());
 
         if self.defined.contains(&inner_name) {
             if let Some(data) = self.module.get_name(&inner_name) {
@@ -2412,7 +2549,7 @@ impl JIT {
                         self.ctx.set_disasm(true);
                     }
                     self.watch_before_define();
-                    let defined = self.module.define_function(inner_id, &mut self.ctx);
+                    let defined = define_function_cached(&mut self.module, inner_id, &mut self.ctx);
                     self.dump_asm_if_asked(&inner_name);
                     defined.err().map(|e| {
                         eprintln!("error in defining function: {}", e);
@@ -2688,7 +2825,7 @@ impl JIT {
         }
         if result.is_some() && {
             self.watch_before_define();
-            let defined = self.module.define_function(frameless_id, &mut self.ctx);
+            let defined = define_function_cached(&mut self.module, frameless_id, &mut self.ctx);
             self.dump_asm_if_asked(&name);
             defined.is_err()
         } {
@@ -2854,7 +2991,7 @@ impl JIT {
                     Ok(()) => match {
                         self.dump_clif_if_asked(&spec_name);
                         self.watch_before_define();
-                        let defined = self.module.define_function(spec_id, &mut self.ctx);
+                        let defined = define_function_cached(&mut self.module, spec_id, &mut self.ctx);
                         self.dump_asm_if_asked(&spec_name);
                         defined
                     } {
@@ -2961,7 +3098,7 @@ impl JIT {
             }
             builder.finalize(self.module.target_config());
         }
-        let defined = self.module.define_function(func_id, &mut self.ctx);
+        let defined = define_function_cached(&mut self.module, func_id, &mut self.ctx);
         let size = self
             .ctx
             .compiled_code()
@@ -3100,6 +3237,7 @@ impl JIT {
             function_context,
             closed_globals,
             names: &self.names,
+            env: self.current_env,
             function_return_types: &self.function_return_types,
             exit_types: &mut exit_types,
             typed_returns: HashSet::new(),
@@ -3275,7 +3413,7 @@ impl JIT {
         // The specialized copy shares the generic copy's id; callers only ever
         // reach the generic copy, so its exits are the ones that describe a call.
         if !matches!(spec_mode, SpecMode::Specialized { .. }) {
-            self.function_return_types.insert(id, exit_types);
+            self.function_return_types.insert((id, self.current_env), exit_types);
         }
 
         if frameless_bail {
@@ -4243,9 +4381,11 @@ struct FunctionTranslator<'a> {
     /// Only such a global may have its value baked into generated code.
     closed_globals: &'a HashSet<usize>,
 
-    names: &'a HashMap<u32, String>,
+    names: &'a HashMap<(u32, u64), String>,
+    // The environment this function is compiled against
+    env: u64,
 
-    function_return_types: &'a HashMap<u32, HashSet<InferredType>>,
+    function_return_types: &'a HashMap<(u32, u64), HashSet<InferredType>>,
     exit_types: &'a mut HashSet<InferredType>,
     // The `return` instructions whose value's type went into `exit_types`.
     // Any other reachable exit makes the function's result type unknown.
@@ -9583,7 +9723,7 @@ impl FunctionTranslator<'_> {
 
     /// The return type recorded for function `id`, when it has only one.
     fn return_type_of(&self, id: u32) -> InferredType {
-        match self.function_return_types.get(&id) {
+        match self.function_return_types.get(&(id, self.env)) {
             Some(ret_types) if ret_types.len() == 1 => ret_types.iter().next().copied().unwrap(),
             _ => InferredType::Any,
         }
@@ -14191,9 +14331,9 @@ impl FunctionTranslator<'_> {
 
         let name = self
             .names
-            .get(&id)
+            .get(&(id, self.env))
             .cloned()
-            .unwrap_or_else(|| format!("{}_inner", id));
+            .unwrap_or_else(|| format!("{}_inner", jit_name(id, self.env)));
 
         let callee = self
             .module

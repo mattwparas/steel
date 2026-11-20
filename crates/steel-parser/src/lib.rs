@@ -9,5 +9,7 @@ pub mod parser;
 pub mod pretty;
 pub mod scopes;
 pub mod span;
+#[cfg(feature = "std")]
+pub mod tables;
 pub mod tokens;
 pub mod visitors;

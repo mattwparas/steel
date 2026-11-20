@@ -284,7 +284,7 @@ pub enum ModuleRoot {
 }
 
 /// Where a module was found when it was required.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ModuleOrigin {
     pub path: PathBuf,
     pub root: ModuleRoot,
@@ -302,7 +302,7 @@ enum Found<'a> {
 
 /// Module origins by prefix path, and prefix paths by root and relative
 /// path.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ModuleOrigins {
     entry: Option<PathBuf>,
     by_prefix_path: FxHashMap<String, ModuleOrigin>,
@@ -442,6 +442,98 @@ pub struct ModuleManager {
     pub(crate) origins: ModuleOrigins,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct SavedModuleManager {
+    compiled_modules: Vec<(PathBuf, CompiledModule)>,
+    deferred: Vec<(PathBuf, ExprKind)>,
+    late_require: bool,
+    template_imports: Vec<crate::parser::expand_visitor::TemplateImport>,
+    origins: ModuleOrigins,
+}
+
+/// A saved module manager as what changed from another, see `SavedCompilerDelta`
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SavedModuleManagerDelta {
+    compiled_modules: crate::compiler::compiler::MapDelta<PathBuf, CompiledModule>,
+    deferred: crate::compiler::compiler::MapDelta<PathBuf, ExprKind>,
+    late_require: bool,
+    template_imports: Vec<crate::parser::expand_visitor::TemplateImport>,
+    origins: ModuleOrigins,
+}
+
+impl SavedModuleManagerDelta {
+    pub(crate) fn module_prefixes(&self) -> Vec<(PathBuf, CompactString)> {
+        self.compiled_modules
+            .clone()
+            .into_parts()
+            .0
+            .into_iter()
+            .map(|(path, module)| (path, module.prefix()))
+            .collect()
+    }
+}
+
+impl ModuleManager {
+    /// See `Compiler::apply_delta`
+    pub(crate) fn apply_delta(&mut self, delta: SavedModuleManagerDelta) {
+        let SavedModuleManagerDelta {
+            compiled_modules,
+            deferred,
+            late_require,
+            template_imports,
+            origins,
+        } = delta;
+        let (changed, removed) = compiled_modules.into_parts();
+        for path in removed {
+            self.compiled_modules.compiled_modules.remove(&path);
+        }
+        for (path, module) in changed {
+            self.compiled_modules.compiled_modules.insert(path, module);
+        }
+        let (changed, removed) = deferred.into_parts();
+        for path in removed {
+            self.compiled_modules.deferred.remove(&path);
+        }
+        for (path, code) in changed {
+            self.compiled_modules.deferred.insert(path, DeferredCode(code));
+        }
+        self.late_require = late_require;
+        self.template_imports = template_imports;
+        self.origins = origins;
+    }
+}
+
+impl SavedModuleManager {
+    pub(crate) fn delta_from(self, base: &SavedModuleManager) -> SavedModuleManagerDelta {
+        use crate::compiler::compiler::MapDelta;
+        SavedModuleManagerDelta {
+            compiled_modules: MapDelta::between(
+                base.compiled_modules.iter().map(|(k, v)| (k, v)),
+                self.compiled_modules.iter().map(|(k, v)| (k, v)),
+            ),
+            deferred: MapDelta::between(
+                base.deferred.iter().map(|(k, v)| (k, v)),
+                self.deferred.iter().map(|(k, v)| (k, v)),
+            ),
+            late_require: self.late_require,
+            template_imports: self.template_imports,
+            origins: self.origins,
+        }
+    }
+
+    pub(crate) fn with_delta(mut self, delta: SavedModuleManagerDelta) -> SavedModuleManager {
+        delta.compiled_modules.apply_to_pairs(&mut self.compiled_modules);
+        delta.deferred.apply_to_pairs(&mut self.deferred);
+        SavedModuleManager {
+            compiled_modules: self.compiled_modules,
+            deferred: self.deferred,
+            late_require: delta.late_require,
+            template_imports: delta.template_imports,
+            origins: delta.origins,
+        }
+    }
+}
+
 pub trait SourceModuleResolver: Send + Sync {
     fn resolve(&self, key: &str) -> Option<String>;
     fn exists(&self, key: &str) -> bool;
@@ -467,6 +559,67 @@ impl ModuleManager {
         }
     }
 
+    /// What compiling modules left here that a later compile reads, for a boot
+    /// image saved to disk. Resolvers, custom builtins and file times are the
+    /// host's, and left to it.
+    pub(crate) fn save(&self) -> SavedModuleManager {
+        // Every field, so a new one has to be saved here or said why not
+        let ModuleManager {
+            compiled_modules,
+            // The host's files: none of the stdlib's modules are files
+            file_metadata: _,
+            // Per compile
+            visited: _,
+            rollback_metadata: _,
+            rollback_deferred: _,
+            // The host's
+            custom_builtins: _,
+            module_resolvers: _,
+            // The same in every process
+            prelude_string: _,
+            late_require,
+            template_imports,
+            origins,
+        } = self;
+        let CompiledModuleCache {
+            // The host's
+            cache_dir: _,
+            compiled_modules,
+            deferred,
+            // This process's
+            disk: _,
+        } = compiled_modules;
+        SavedModuleManager {
+            compiled_modules: compiled_modules
+                .iter()
+                .map(|(path, module)| (path.clone(), module.clone()))
+                .collect(),
+            deferred: deferred
+                .iter()
+                .map(|(path, code)| (path.clone(), code.0.clone()))
+                .collect(),
+            late_require: *late_require,
+            template_imports: template_imports.clone(),
+            origins: origins.clone(),
+        }
+    }
+
+    /// Puts what `save` kept back into this manager
+    pub(crate) fn restore(&mut self, saved: SavedModuleManager) {
+        self.compiled_modules
+            .compiled_modules
+            .extend(saved.compiled_modules);
+        self.compiled_modules.deferred.extend(
+            saved
+                .deferred
+                .into_iter()
+                .map(|(path, code)| (path, DeferredCode(code))),
+        );
+        self.late_require = saved.late_require;
+        self.template_imports = saved.template_imports;
+        self.origins = saved.origins;
+    }
+
     pub fn origins(&self) -> &ModuleOrigins {
         &self.origins
     }
@@ -485,6 +638,10 @@ impl ModuleManager {
 
     pub fn modules_mut(&mut self) -> &mut crate::HashMap<PathBuf, CompiledModule> {
         &mut self.compiled_modules.compiled_modules
+    }
+
+    pub(crate) fn disk_cache(&mut self) -> &mut crate::compiler::module_cache::State {
+        &mut self.compiled_modules.disk
     }
 
     pub(crate) fn default() -> Self {
@@ -1595,6 +1752,7 @@ fn reexport_requires(
                 ops: Vec::new(),
                 template: Vec::new(),
                 template_imports: Vec::new(),
+                spec: None,
             })
         })
         .collect()
@@ -2038,11 +2196,34 @@ fn template_path(spec: &ExprKind) -> Option<ScopeSetId> {
     }
 }
 
-fn template_prefix() -> String {
-    use core::sync::atomic::{AtomicUsize, Ordering};
-    static COUNT: AtomicUsize = AtomicUsize::new(0);
-    let n = COUNT.fetch_add(1, Ordering::Relaxed);
-    format!("#%template{n}:")
+pub(crate) static TEMPLATE_PREFIXES: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+
+std::thread_local! {
+    // How many template prefixes each module being compiled has made
+    static MODULE_TEMPLATE_PREFIXES: core::cell::RefCell<FxHashMap<PathBuf, usize>> =
+        core::cell::RefCell::new(FxHashMap::default());
+}
+
+// The prefix for the names a template's require imports. A module's are numbered
+// within it and name it, so they're the same whichever process compiles it.
+fn template_prefix(module: &Path, main: bool) -> String {
+    if main {
+        let n = TEMPLATE_PREFIXES.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        return format!("#%template{n}:");
+    }
+    let n = MODULE_TEMPLATE_PREFIXES.with(|m| {
+        let mut m = m.borrow_mut();
+        let n = m.entry(module.to_path_buf()).or_default();
+        *n += 1;
+        *n
+    });
+    format!("#%template{n}@{}:", path_to_prefix_name(module.to_path_buf()))
+}
+
+// A module compile starts its template prefixes over
+fn restart_template_prefixes(module: &Path) {
+    MODULE_TEMPLATE_PREFIXES.with(|m| m.borrow_mut().remove(module));
 }
 
 pub(crate) fn split_for_syntax(require: &mut crate::parser::ast::Require) {
@@ -2413,11 +2594,53 @@ fn prefix_path(name: &Path) -> &str {
 }
 
 fn push_prefix_id(base: &mut CompactString, name: &Path) {
-    let interned = InternedString::from_str(prefix_path(name));
-    let id = interned.get().into_inner();
-
-    base.push_str(&id.to_string());
+    base.push_str(&prefix_number(prefix_path(name)).to_string());
     base.push_str(MANGLER_SEPARATOR);
+}
+
+// Module prefixes are numbered in the order modules first need one, per process.
+// (Not the interner's numbers, which depend on what a process interned first: a
+// boot image's modules keep the numbers they had, `restore_module_prefixes`.)
+static MODULE_PREFIXES: once_cell::sync::Lazy<
+    std::sync::Mutex<(FxHashMap<String, u32>, Vec<String>)>,
+> = once_cell::sync::Lazy::new(Default::default);
+
+/// The number in the prefix of the module with this prefix path
+pub(crate) fn prefix_number(path: &str) -> u32 {
+    let mut table = MODULE_PREFIXES.lock().unwrap();
+    if let Some(number) = table.0.get(path) {
+        return *number;
+    }
+    table.1.push(path.to_string());
+    let number = table.1.len() as u32;
+    table.0.insert(path.to_string(), number);
+    number
+}
+
+/// The prefix path of the module whose prefix has this number
+pub(crate) fn prefix_path_of(number: u32) -> Option<String> {
+    let table = MODULE_PREFIXES.lock().unwrap();
+    table.1.get((number as usize).checked_sub(1)?).cloned()
+}
+
+/// The modules with prefixes, in the order of their numbers
+pub(crate) fn module_prefixes() -> Vec<String> {
+    MODULE_PREFIXES.lock().unwrap().1.clone()
+}
+
+/// Gives the modules the numbers they had in the process that made `saved`.
+/// False if this process gave one of those numbers to another module.
+pub(crate) fn restore_module_prefixes(saved: &[String]) -> bool {
+    let mut table = MODULE_PREFIXES.lock().unwrap();
+    if table.1.iter().zip(saved).any(|(here, there)| here != there) {
+        return false;
+    }
+    for path in saved.iter().skip(table.1.len()) {
+        table.1.push(path.clone());
+        let number = table.1.len() as u32;
+        table.0.insert(path.clone(), number);
+    }
+    true
 }
 
 pub fn path_to_prefix_name(name: PathBuf) -> String {
@@ -2467,6 +2690,32 @@ impl CompiledModule {
     // TODO: Should cache this
     pub fn prefix(&self) -> CompactString {
         self.cached_prefix.clone()
+    }
+
+    /// Made this process's after it's read from the disk cache: its prefix, and
+    /// the module prefixes in its requires' template prefixes (`rename`). These
+    /// are plain strings, outside the tables the rest is renumbered in. (Every
+    /// other string field of a module is checked to have none by the test
+    /// `modules_read_from_the_cache_run_as_compiled`.)
+    pub(crate) fn renumber(&mut self, rename: &mut impl FnMut(&str) -> Option<String>) {
+        self.cached_prefix = path_to_prefix_name(self.name.to_path_buf()).into();
+        for require in &mut self.require_objects {
+            for (prefix, _) in &mut require.template {
+                if let Some(renamed) = rename(prefix) {
+                    *prefix = renamed;
+                }
+            }
+            if let Some(renamed) = require.prefix.as_deref().and_then(&mut *rename) {
+                require.prefix = Some(renamed);
+            }
+            for op in &mut require.ops {
+                if let RequireOp::Prefix(prefix) = op {
+                    if let Some(renamed) = rename(prefix) {
+                        *prefix = renamed;
+                    }
+                }
+            }
+        }
     }
 
     pub fn get_compiled_ast(&self) -> &Option<ExprKind> {
@@ -3037,10 +3286,13 @@ pub struct RequireObject {
     pub span: Span,
     #[serde(default)]
     ops: Vec<RequireOp>,
-    #[serde(skip)]
+    #[serde(default)]
     template: Vec<(String, ScopeSetId)>,
-    #[serde(skip)]
+    #[serde(default)]
     template_imports: Vec<crate::parser::expand_visitor::TemplateImport>,
+    // The module as the require named it, when that's a string
+    #[serde(default)]
+    spec: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -3092,6 +3344,7 @@ struct RequireObjectBuilder {
     span: Span,
     ops: Vec<RequireOp>,
     template: Vec<(String, ScopeSetId)>,
+    spec: Option<String>,
 }
 
 impl RequireObjectBuilder {
@@ -3109,6 +3362,7 @@ impl RequireObjectBuilder {
             ops: self.ops,
             template: self.template,
             template_imports: Vec::new(),
+            spec: self.spec,
         })
     }
 }
@@ -3170,6 +3424,103 @@ impl DependencyGraph {
 }
 */
 
+
+// Where a require of the string `s` in the module `name` finds the module: a
+// builtin or registered module, else a file beside it, in STEEL_HOME, or in a
+// search directory
+#[allow(clippy::too_many_arguments)]
+fn resolve_require_spec<'b>(
+    name: &Path,
+    custom_builtins: &HashMap<String, String>,
+    module_resolvers: &[Arc<dyn SourceModuleResolver>],
+    search_dirs: &'b [PathBuf],
+    home: &'b Option<PathBuf>,
+    s: &str,
+    span: Span,
+) -> Result<(PathOrBuiltIn, Option<Found<'b>>)> {
+    struct Spec<'s>(&'s str);
+    impl Spec<'_> {
+        fn resolve(&self) -> &str {
+            self.0
+        }
+    }
+    let s = Spec(s);
+                // Try this?
+                if let Some(lib) = BUILT_INS.iter().cloned().find(|x| x.0 == s.resolve()) {
+                    return Ok((PathOrBuiltIn::BuiltIn(lib.0.into()), None));
+                }
+
+                if custom_builtins.contains_key(s.resolve()) {
+                    return Ok((PathOrBuiltIn::BuiltIn(s.resolve().to_string().into()), None));
+                }
+
+                if module_resolvers.iter().any(|x| x.exists(s.resolve())) {
+                    return Ok((PathOrBuiltIn::BuiltIn(s.resolve().to_string().into()), None));
+                }
+
+                if cfg!(target_family = "wasm") {
+                    stop!(Generic => "requiring modules is not supported for wasm");
+                }
+
+                let mut current = name.to_path_buf();
+                if current.is_file() {
+                    current.pop();
+                }
+                current.push(PathBuf::from(s.resolve()));
+
+                let mut found = Found::Beside;
+
+                // // If the path exists on its own, we can continue
+                // // But theres the case where we're searching for a module on the STEEL_HOME
+                if !current.exists() {
+                    if let Some(home_dir) = home.as_ref() {
+                        let mut home = home_dir.clone();
+                        home.push(PathBuf::from(s.resolve()));
+                        current = home;
+                        found = Found::Home(home_dir);
+
+                        log::info!("Searching STEEL_HOME for {:?}", current);
+
+                        if !current.exists() {
+                            for search_dir in search_dirs {
+                                let mut dir = search_dir.clone();
+                                dir.push(s.resolve());
+
+                                if dir.exists() {
+                                    current = dir;
+                                    found = Found::Search(search_dir);
+                                    break;
+                                }
+                            }
+                        }
+                    } else {
+                        // TODO: Check if this module exists in STEEL_HOME first. If it does, we'll take that as our candidate
+                        // and then continue on to the final module resolution part.
+                        //
+                        // If it doesn't exist, we should iterate through the search directories and attempt to find
+                        // a matching path there.
+                        for dir in search_dirs {
+                            let mut dir = dir.clone();
+                            dir.push(s.resolve());
+
+                            if dir.exists() {
+                                current = dir;
+                                break;
+                            }
+                        }
+
+                        stop!(Generic => format!("Module not found: {:?} with STEEL_HOME: {:?}", current, home); span)
+                    }
+                }
+
+                // Get the absolute path and store that
+                // self.requires.push(current)
+
+                let current = try_canonicalize(current);
+
+                Ok((PathOrBuiltIn::Path(current), Some(found)))
+}
+
 #[derive(Clone)]
 #[allow(unused)]
 pub(crate) struct CompiledModuleCache {
@@ -3178,6 +3529,8 @@ pub(crate) struct CompiledModuleCache {
     // Phase 0 code of modules only required for syntax so far. It runs once the module is
     // required normally
     deferred: crate::HashMap<PathBuf, DeferredCode>,
+    // Modules kept on disk (`module_cache`)
+    pub(crate) disk: crate::compiler::module_cache::State,
 }
 
 // A module's code kept for later. It can nest too deep to drop recursively
@@ -3192,7 +3545,7 @@ impl DeferredCode {
 
 impl Drop for DeferredCode {
     fn drop(&mut self) {
-        steel_parser::ast::drop_deep([core::mem::take(&mut self.0)]);
+        steel_parser::ast::drop_deep([core::mem::replace(&mut self.0, ExprKind::hole())]);
     }
 }
 
@@ -3369,6 +3722,7 @@ impl CompiledModuleCache {
             cache_dir,
             compiled_modules,
             deferred: crate::HashMap::default(),
+            disk: Default::default(),
         }
     }
 
@@ -3378,6 +3732,7 @@ impl CompiledModuleCache {
             cache_dir: None,
             compiled_modules,
             deferred: crate::HashMap::default(),
+            disk: Default::default(),
         }
     }
 
@@ -3967,7 +4322,7 @@ fn provided_phase1_bindings(
         .collect()
 }
 
-static PHASE1_INSTANCES: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+pub(crate) static PHASE1_INSTANCES: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
 // The prelude and Steel's builtin modules have a single phase 1 instance, shared by all
 // transformer code
@@ -4373,6 +4728,7 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
+        restart_template_prefixes(&self.name);
         // println!("Compiling: {:?}", self.name);
 
         // debug!(target: "requires", "Visiting: {:?}", self.name);
@@ -4821,11 +5177,13 @@ impl<'a> ModuleBuilder<'a> {
             .collect();
 
         // TODO come back for parsing built ins
-        for module in self.require_objects[start..]
+        let builtins: Vec<PathBuf> = self.require_objects[start..]
             .iter()
             .filter(|x| matches!(x.path, PathOrBuiltIn::BuiltIn(_)))
-            .map(|x| x.path.get_path())
-        {
+            .map(|x| x.path.get_path().into_owned())
+            .collect();
+        for module in builtins {
+            let module: Cow<'_, PathBuf> = Cow::Owned(module);
             // We've established nothing has changed with this file
             // Check to see if its in the cache first
             // Otherwise go ahead and compile
@@ -4869,6 +5227,14 @@ impl<'a> ModuleBuilder<'a> {
                     crate::throw!(Generic => "Unable to find builtin module: {:?}", module),
                 )?;
 
+            if !for_syntax_only && crate::compiler::module_cache::enabled() {
+                let (mut code, read) = self.read_cached_module(module.as_ref(), Some(&input))?;
+                new_exprs.append(&mut code);
+                if read {
+                    continue;
+                }
+            }
+
             let mut new_module = ModuleBuilder::new_built_in(
                 module.into_owned(),
                 input,
@@ -4909,11 +5275,13 @@ impl<'a> ModuleBuilder<'a> {
 
         // At this point, requires should be fully qualified (absolute) paths
 
-        for (module, require_statement_span) in self.require_objects[start..]
+        let required: Vec<_> = self.require_objects[start..]
             .iter()
             .filter(|x| matches!(x.path, PathOrBuiltIn::Path(_)))
-            .map(|x| (x.path.get_path(), x.span))
-        {
+            .map(|x| (x.path.get_path().into_owned(), x.span))
+            .collect();
+        for (module, require_statement_span) in required {
+            let module: Cow<'_, PathBuf> = Cow::Owned(module);
             if cfg!(target_family = "wasm") {
                 stop!(Generic => "requiring modules is not supported for wasm");
             }
@@ -4990,6 +5358,14 @@ impl<'a> ModuleBuilder<'a> {
             // There is quite the opportunity to parallelize a chunk
             // of the compilation.
 
+            if !for_syntax_only && crate::compiler::module_cache::enabled() {
+                let (mut code, read) = self.read_cached_module(module.as_ref(), None)?;
+                new_exprs.append(&mut code);
+                if read {
+                    continue;
+                }
+            }
+
             let mut new_module = ModuleBuilder::new_from_path(
                 module.into_owned(),
                 self.compiled_modules,
@@ -5034,6 +5410,211 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         Ok(new_exprs)
+    }
+
+    // The module read from the disk cache in place of compiling it, if its entry
+    // is for its source and what it requires now. What it requires is loaded
+    // first either way: the code for that, and whether it was read. A builtin
+    // module's source is given, a file's is read.
+    fn read_cached_module(
+        &mut self,
+        path: &PathBuf,
+        builtin: Option<&str>,
+    ) -> Result<(Vec<ExprKind>, bool)> {
+        use crate::compiler::module_cache;
+        let debug = crate::config::config().module_cache_debug;
+        let (source, modified) = match builtin {
+            Some(source) => (source.to_string(), None),
+            None => match (
+                std::fs::read_to_string(path),
+                std::fs::metadata(path).and_then(|m| m.modified()),
+            ) {
+                (Ok(source), Ok(modified)) => (source, Some(modified)),
+                _ => return Ok((Vec::new(), false)),
+            },
+        };
+        // Nothing is loaded for an entry of another version
+        let Some((key, requires, bytes)) = module_cache::find(path, &source) else {
+            return Ok((Vec::new(), false));
+        };
+        // Its spans refer to it
+        self.sources.add_source(source.clone(), Some(path.clone()));
+        let Some(read) = module_cache::read(path, &bytes, self.sources) else {
+            return Ok((Vec::new(), false));
+        };
+
+        // What it required, as it required it
+        let mut builder = ModuleBuilder::raw(
+            path.clone(),
+            self.compiled_modules,
+            self.visited,
+            self.file_metadata,
+            self.sources,
+            self.kernel,
+            self.builtin_modules.clone(),
+            self.global_macro_map,
+            self.custom_builtins,
+            self.search_dirs,
+            self.module_resolvers,
+            true,
+            self.prelude_string,
+            self.origins,
+        );
+        // What it required is where its requires find it now: a module can have
+        // gone, or one found first can have appeared (a file beside it, a module
+        // the host registered)
+        let home = cogs_home();
+        let same = read.module.require_objects.iter().all(|r| match &r.spec {
+            Some(spec) => resolve_require_spec(
+                path,
+                builder.custom_builtins,
+                builder.module_resolvers,
+                builder.search_dirs,
+                &home,
+                spec,
+                r.span,
+            )
+            .is_ok_and(|(now, _)| now.get_path() == r.path.get_path()),
+            None => !matches!(&r.path, PathOrBuiltIn::Path(p) if !p.is_file()),
+        });
+        if !same {
+            if debug {
+                eprintln!("module cache: what {} requires is somewhere else now", path.display());
+            }
+            return Ok((Vec::new(), false));
+        }
+
+        builder.require_objects = read.module.require_objects.clone();
+        if builder.require_objects.iter().any(|r| r.for_syntax) {
+            return Ok((Vec::new(), false));
+        }
+        let code = builder.load_requires(0)?;
+
+        let state = &builder.compiled_modules.disk;
+        let mut keys = Vec::with_capacity(requires.len());
+        for required in &requires {
+            match state.keys.get(required) {
+                Some(Some(k)) => keys.push((required.clone(), *k)),
+                found => {
+                    if debug {
+                        eprintln!(
+                            "module cache: not reading {}: {} {}",
+                            path.display(),
+                            required.display(),
+                            if found.is_some() { "can't be kept" } else { "wasn't loaded" }
+                        );
+                    }
+                    return Ok((code, false));
+                }
+            }
+        }
+        if module_cache::module_key(&source, builder.prelude_string, &keys) != Some(key) {
+            if debug {
+                eprintln!("module cache: what {} requires changed", path.display());
+            }
+            return Ok((code, false));
+        }
+        if let Some(modified) = modified {
+            builder.file_metadata.insert(path.clone(), modified);
+        }
+
+        module_cache::used(path);
+        // What an older version of it left
+        crate::parser::expand_visitor::forget_module(path.to_string_lossy().as_ref().into());
+        read.expander.install();
+        crate::parser::expand_visitor::restore_recorded_globally(read.structs, Vec::new());
+        let disk = &mut builder.compiled_modules.disk;
+        disk.keys.insert(path.clone(), Some(key));
+        disk.read.insert(path.clone(), read.cached);
+        builder
+            .compiled_modules
+            .compiled_modules
+            .insert(path.clone(), read.module);
+        builder.visited.insert(path.clone());
+
+        // In its code's place, what the compile finds it by
+        let mut code = code;
+        builder.emit(
+            &mut code,
+            ExprKind::Begin(Box::new(crate::parser::ast::Begin::new(
+                vec![expr_list!(
+                    ExprKind::atom("#%prim.#%push-module-context"),
+                    ExprKind::string_lit(path.to_str().unwrap().to_owned())
+                )],
+                SyntaxObject::default(TokenType::Begin),
+            ))),
+        );
+        Ok((code, true))
+    }
+
+    // Notes what's needed to keep the module just compiled on disk, if it can be
+    fn record_for_disk_cache(
+        &mut self,
+        foreign_before: &crate::parser::expand_visitor::ForeignMark,
+    ) {
+        use crate::compiler::module_cache;
+        let path = self.name.clone();
+        let name = path.to_string_lossy().to_string();
+        let disk = &self.compiled_modules.disk;
+        // Not the internal modules
+        let mut keepable = !self.for_syntax_only
+            && !self.main
+            && !name.starts_with("#%")
+            && !disk.refused.contains(&path)
+            && !self.require_objects.iter().any(|r| r.for_syntax)
+            && self
+                .kernel
+                .as_ref()
+                .is_none_or(|kernel| !kernel.has_procedural_macros(&name));
+        let mut requires: Vec<PathBuf> = Vec::new();
+        let mut keys = Vec::new();
+        for required in &self.require_objects {
+            let p = required.path.get_path().into_owned();
+            if requires.contains(&p) {
+                continue;
+            }
+            match (&required.path, disk.keys.get(&p)) {
+                (_, Some(Some(k))) => {
+                    requires.push(p.clone());
+                    keys.push((p, *k));
+                }
+                // A builtin module this process didn't compile is the boot image's,
+                // if its source is Steel's own (part of the build key). A module
+                // the host registered and a compile without the cache loaded has
+                // no key: what requires it can't be kept.
+                (PathOrBuiltIn::BuiltIn(name), None)
+                    if BUILT_INS.iter().any(|(n, _)| *n == name.as_ref()) => {}
+                _ => keepable = false,
+            }
+        }
+        let source_text = self
+            .sources
+            .get_source_id(&path)
+            .and_then(|id| self.sources.sources.get(id).cloned());
+        let key = match (keepable, &source_text) {
+            (true, Some(source)) => module_cache::module_key(source, self.prelude_string, &keys),
+            _ => None,
+        };
+        let disk = &mut self.compiled_modules.disk;
+        disk.keys.insert(path.clone(), key);
+        if let Some(key) = key {
+            let module: InternedString = name.as_str().into();
+            disk.compiled.insert(
+                path,
+                module_cache::Compiled {
+                    key,
+                    source: module_cache::source_hash(source_text.as_deref().map(|s| &**s).unwrap_or("")),
+                    requires,
+                    expander: crate::parser::expand_visitor::ThreadExpanderState::capture(
+                        [module],
+                        foreign_before,
+                    ),
+                    structs: crate::parser::expand_visitor::struct_info_of(module),
+                },
+            );
+        } else if crate::config::config().module_cache_debug {
+            eprintln!("module cache: can't keep {}", path.display());
+        }
     }
 
     // Where the macro the module imports as `name` is defined
@@ -5207,10 +5788,21 @@ impl<'a> ModuleBuilder<'a> {
             kernel.begin_compiling(self.name.to_str().unwrap().to_string());
         }
 
+        let keeping = crate::compiler::module_cache::enabled();
+        let foreign_before = if keeping {
+            crate::parser::expand_visitor::ThreadExpanderState::foreign_expansions()
+        } else {
+            Default::default()
+        };
+
         let result = self.compile_this_module();
 
         if let Some(kernel) = self.kernel.as_mut() {
             kernel.end_compiling();
+        }
+
+        if keeping && result.is_ok() {
+            self.record_for_disk_cache(&foreign_before);
         }
 
         result
@@ -5294,6 +5886,9 @@ impl<'a> ModuleBuilder<'a> {
 
         let loaded_syntax_transformers =
             ast.iter().any(|x| crate::parser::kernel::is_phase1_form(x));
+        if loaded_syntax_transformers || self.kernel.as_ref().is_some_and(|k| k.has_procedural_macros(self.name.to_str().unwrap_or_default())) {
+            self.compiled_modules.disk.refused.insert(self.name.clone());
+        }
 
         let globals = collect_globals(&ast);
 
@@ -6477,7 +7072,7 @@ impl<'a> ModuleBuilder<'a> {
             rename_targets(atom, &mut targets);
             match template_path(atom) {
                 Some(scopes) => {
-                    let prefix = template_prefix();
+                    let prefix = template_prefix(&self.name, self.main);
                     object.ops.push(RequireOp::Prefix(prefix.clone()));
                     let written: Vec<_> = targets
                         .iter()
@@ -6497,7 +7092,7 @@ impl<'a> ModuleBuilder<'a> {
                         let Some(name) = target.ty.identifier().copied() else {
                             continue;
                         };
-                        let prefix = template_prefix();
+                        let prefix = template_prefix(&self.name, self.main);
                         object.ops.push(RequireOp::Rename(vec![(
                             name,
                             (prefix.clone() + name.resolve()).into(),
@@ -6535,95 +7130,21 @@ impl<'a> ModuleBuilder<'a> {
                     stop!(Generic => "require object only expects one path!")
                 }
 
-                // Try this?
-                if let Some(lib) = BUILT_INS.iter().cloned().find(|x| x.0 == s.resolve()) {
-                    require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
-                    return Ok(());
+                let (path, found) = resolve_require_spec(
+                    &self.name,
+                    self.custom_builtins,
+                    self.module_resolvers,
+                    self.search_dirs,
+                    home,
+                    s.resolve(),
+                    *span,
+                )?;
+                if let (PathOrBuiltIn::Path(current), Some(found)) = (&path, found) {
+                    self.origins
+                        .record(&self.name, self.main, found, s.resolve(), current);
                 }
-
-                if self.custom_builtins.contains_key(s.resolve()) {
-                    require_object.path =
-                        Some(PathOrBuiltIn::BuiltIn(s.clone().to_string().into()));
-
-                    return Ok(());
-                }
-
-                if self
-                    .module_resolvers
-                    .iter()
-                    .find(|x| x.exists(s.resolve()))
-                    .is_some()
-                {
-                    require_object.path =
-                        Some(PathOrBuiltIn::BuiltIn(s.clone().to_string().into()));
-
-                    return Ok(());
-                }
-
-                if cfg!(target_family = "wasm") {
-                    stop!(Generic => "requiring modules is not supported for wasm");
-                }
-
-                let mut current = self.name.clone();
-                if current.is_file() {
-                    current.pop();
-                }
-                current.push(PathBuf::from(s.resolve()));
-
-                let mut found = Found::Beside;
-
-                // // If the path exists on its own, we can continue
-                // // But theres the case where we're searching for a module on the STEEL_HOME
-                if !current.exists() {
-                    if let Some(home_dir) = home.as_ref() {
-                        let mut home = home_dir.clone();
-                        home.push(PathBuf::from(s.resolve()));
-                        current = home;
-                        found = Found::Home(home_dir);
-
-                        log::info!("Searching STEEL_HOME for {:?}", current);
-
-                        if !current.exists() {
-                            for search_dir in self.search_dirs {
-                                let mut dir = search_dir.clone();
-                                dir.push(s.resolve());
-
-                                if dir.exists() {
-                                    current = dir;
-                                    found = Found::Search(search_dir);
-                                    break;
-                                }
-                            }
-                        }
-                    } else {
-                        // TODO: Check if this module exists in STEEL_HOME first. If it does, we'll take that as our candidate
-                        // and then continue on to the final module resolution part.
-                        //
-                        // If it doesn't exist, we should iterate through the search directories and attempt to find
-                        // a matching path there.
-                        for dir in self.search_dirs {
-                            let mut dir = dir.clone();
-                            dir.push(s.resolve());
-
-                            if dir.exists() {
-                                current = dir;
-                                break;
-                            }
-                        }
-
-                        stop!(Generic => format!("Module not found: {:?} with STEEL_HOME: {:?}", current, home); *span)
-                    }
-                }
-
-                // Get the absolute path and store that
-                // self.requires.push(current)
-
-                let current = try_canonicalize(current);
-
-                self.origins
-                    .record(&self.name, self.main, found, s.resolve(), &current);
-
-                require_object.path = Some(PathOrBuiltIn::Path(current));
+                require_object.spec = Some(s.resolve().to_string());
+                require_object.path = Some(path);
             }
 
             // TODO: Requires with qualifiers, that aren't just for-syntax
@@ -6971,5 +7492,40 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         Ok(self)
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn thread_state_for_tests() -> Vec<(&'static str, String)> {
+    vec![("REQUIRE_CONTEXTS", REQUIRE_CONTEXTS.with(|x| x.borrow().len()).to_string())]
+}
+
+#[cfg(test)]
+impl ModuleManager {
+    /// What `save` leaves out, and each compiled module's require templates
+    pub(crate) fn unsaved_state(&self) -> Vec<(String, String)> {
+        let mut out = vec![
+            ("file_metadata".to_string(), self.file_metadata.len().to_string()),
+            // `visited` is left out: every compile clears it on entry
+            ("rollback_metadata".to_string(), self.rollback_metadata.len().to_string()),
+            ("rollback_deferred".to_string(), self.rollback_deferred.len().to_string()),
+            ("custom_builtins".to_string(), self.custom_builtins.len().to_string()),
+            ("module_resolvers".to_string(), self.module_resolvers.len().to_string()),
+            ("cache_dir".to_string(), self.compiled_modules.cache_dir.is_some().to_string()),
+        ];
+        let mut modules: Vec<_> = self.compiled_modules.compiled_modules.iter().collect();
+        modules.sort_by(|a, b| a.0.cmp(b.0));
+        for (path, module) in modules {
+            for (i, require) in module.require_objects.iter().enumerate() {
+                if require.template.is_empty() && require.template_imports.is_empty() {
+                    continue;
+                }
+                out.push((
+                    format!("{} require {i}", path.display()),
+                    format!("{:?} {:?}", require.template, require.template_imports),
+                ));
+            }
+        }
+        out
     }
 }

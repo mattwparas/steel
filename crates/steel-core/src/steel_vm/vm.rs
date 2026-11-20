@@ -420,6 +420,11 @@ pub struct SteelThread {
     /// off to the interpreter, which recurses on the heap. Zero until computed.
     #[cfg(feature = "jit2")]
     pub(crate) native_stack_limit: usize,
+
+    /// While a boot image is made: what this thread's engine is made to do
+    pub(crate) recording: crate::steel_vm::engine::Recording,
+    /// While a recording is replayed: the programs `eval` compiled, run instead
+    pub(crate) replaying: crate::steel_vm::engine::Replaying,
 }
 
 /// How much of the running thread's stack jitted frames may use, as an absolute
@@ -1137,6 +1142,9 @@ impl SteelThread {
 
             #[cfg(feature = "jit2")]
             native_stack_limit: 0,
+
+            recording: Default::default(),
+            replaying: Default::default(),
         }
     }
 
@@ -6577,6 +6585,12 @@ fn debug_global_env(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    // A replay already has what this compiled when it was recorded
+    if let Some(program) = ctx.thread.replaying.next() {
+        eval_program(program, ctx)?;
+        return Ok(SteelVal::Void);
+    }
+
     // Can we have this... not lower?
     let mut expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
 
@@ -6610,6 +6624,10 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
                 "eval-context".to_string(),
                 &mut ctx.thread.compiler.write().symbol_map,
             )?;
+
+            ctx.thread
+                .recording
+                .record(|| crate::steel_vm::engine::BootStep::Eval(result.clone()));
 
             eval_program(result, ctx)?;
 
@@ -6946,6 +6964,12 @@ fn expand_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    // A replay already has what this compiled when it was recorded
+    if let Some(program) = ctx.thread.replaying.next() {
+        eval_program(program, ctx)?;
+        return Ok(SteelVal::Void);
+    }
+
     let path = SteelString::from_steelval(&args[0])?;
 
     let mut file = std::fs::File::open(path.as_str())?;
@@ -6971,6 +6995,10 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
                 &mut ctx.thread.compiler.write().symbol_map,
             )?;
 
+            ctx.thread
+                .recording
+                .record(|| crate::steel_vm::engine::BootStep::Eval(result.clone()));
+
             eval_program(result, ctx)?;
 
             Ok(SteelVal::Void)
@@ -6980,6 +7008,12 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
 }
 
 fn eval_string_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    // A replay already has what this compiled when it was recorded
+    if let Some(program) = ctx.thread.replaying.next() {
+        eval_program(program, ctx)?;
+        return Ok(SteelVal::Void);
+    }
+
     let string = SteelString::from_steelval(&args[0])?;
 
     let maybe_path = ctx
@@ -7006,6 +7040,10 @@ fn eval_string_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) ->
                 "eval-context".to_string(),
                 &mut ctx.thread.compiler.write().symbol_map,
             )?;
+
+            ctx.thread
+                .recording
+                .record(|| crate::steel_vm::engine::BootStep::Eval(result.clone()));
 
             eval_program(result, ctx)?;
 

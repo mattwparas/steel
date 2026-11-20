@@ -47,6 +47,22 @@ impl RenameShadowedVariables {
         }
     }
 
+    /// The names handed out so far, which later compiles must not hand out again
+    pub(crate) fn issued_names(&self) -> (Vec<InternedString>, Vec<(InternedString, u32)>) {
+        (
+            self.issued.iter().copied().collect(),
+            self.next_suffix.iter().map(|(k, v)| (*k, *v)).collect(),
+        )
+    }
+
+    pub(crate) fn restore_issued_names(
+        &mut self,
+        (issued, next_suffix): (Vec<InternedString>, Vec<(InternedString, u32)>),
+    ) {
+        self.issued.extend(issued);
+        self.next_suffix.extend(next_suffix);
+    }
+
     fn clear(&mut self) {
         self.scope.clear_all();
         self.shadows.clear_all();

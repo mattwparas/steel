@@ -422,7 +422,7 @@ pub enum OptLevel {
     Three,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct KernelDefMacroSpec {
     pub(crate) _env: String,
     // The macros the program can use, by the names it uses them by
@@ -471,6 +471,354 @@ pub struct Compiler {
 
     top_level_variables: FxHashSet<InternedString>,
     template_imports: Vec<crate::parser::expand_visitor::TemplateImport>,
+
+    // While a compile lowers its modules one at a time: the constants the ones
+    // so far defined (`STEEL_SEPARATE_MODULES`)
+    module_constants: Vec<(InternedString, SteelVal)>,
+    // A module's code as later modules lowered on their own should see it
+    pending_snapshots: Vec<(PathBuf, ExprKind)>,
+    // Each group lowered, for code generation
+    group_lengths: Vec<LoweredGroup>,
+    // What the module being lowered defines as constants, for the later ones
+    learned_constants: Vec<(InternedString, SteelVal)>,
+    // What modules compiled from source left for later ones, to keep on disk
+    // once their code is made (`module_cache`)
+    module_keeps: FxHashMap<PathBuf, ModuleKeep>,
+}
+
+// A group of statements lowered on its own
+#[derive(Clone)]
+enum LoweredGroup {
+    // This many statements, a module's block if it has a path
+    Code(usize, Option<PathBuf>),
+    // A module read from the disk cache, whose code is ready
+    Cached(Box<crate::compiler::module_cache::CachedModule>),
+}
+
+#[derive(Clone, Default)]
+struct ModuleKeep {
+    snapshot: Option<ExprKind>,
+    learned: Vec<(InternedString, SteelVal)>,
+    non_mutable: Vec<InternedString>,
+    object: Option<core::result::Result<crate::compiler::module_cache::SavedObject, String>>,
+}
+
+/// A compiler's state for a boot image saved to disk: what a later compile
+/// reads. Caches (the analysis, memoization, the renamer), the Steel passes'
+/// settings, search directories and the builtin modules come fresh where it's
+/// restored. Constants are saved separately (`steel_vm::boot_image`), since
+/// executables and the compiler share the map.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct SavedCompiler {
+    symbol_map: SymbolMap,
+    macro_env: FxHashMap<InternedString, SteelMacro>,
+    module_manager: crate::compiler::modules::SavedModuleManager,
+    opt_level: OptLevel,
+    mangled_identifiers: FxHashMap<InternedString, InternedString>,
+    lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
+    phase1_imports: Vec<Phase1Import>,
+    template_globals: crate::compiler::passes::hygiene::TemplateGlobals,
+    lifted_macro_environments: HashMap<PathBuf, HashSet<InternedString>>,
+    sources: Sources,
+    redefined_builtins: FxHashSet<InternedString>,
+    top_level_variables: FxHashSet<InternedString>,
+    template_imports: Vec<crate::parser::expand_visitor::TemplateImport>,
+    // Local names the renamer has handed out: names stay unique across compiles
+    issued_names: (Vec<InternedString>, Vec<(InternedString, u32)>),
+}
+
+/// What a map gained, changed and lost, from one saved state to another. Values
+/// are compared as written, without syntax object ids (copies of syntax get new
+/// ones).
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct MapDelta<K, V> {
+    changed: Vec<(K, V)>,
+    removed: Vec<K>,
+}
+
+pub(crate) fn same_when_written<T: Serialize>(a: &T, b: &T) -> bool {
+    steel_parser::tables::comparing(|| {
+        matches!((bincode::serialize(a), bincode::serialize(b)), (Ok(a), Ok(b)) if a == b)
+    })
+}
+
+impl<K, V> MapDelta<K, V>
+where
+    K: Clone + Eq + core::hash::Hash,
+    V: Clone + Serialize,
+{
+    pub(crate) fn between<'a>(
+        base: impl IntoIterator<Item = (&'a K, &'a V)>,
+        new: impl IntoIterator<Item = (&'a K, &'a V)>,
+    ) -> Self
+    where
+        K: 'a,
+        V: 'a,
+    {
+        let base: FxHashMap<&K, &V> = base.into_iter().collect();
+        let new: FxHashMap<&K, &V> = new.into_iter().collect();
+        MapDelta {
+            changed: new
+                .iter()
+                .filter(|(k, v)| base.get(*k).is_none_or(|old| !same_when_written(*old, **v)))
+                .map(|(k, v)| ((*k).clone(), (*v).clone()))
+                .collect(),
+            removed: base
+                .keys()
+                .filter(|k| !new.contains_key(*k))
+                .map(|k| (*k).clone())
+                .collect(),
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> (Vec<(K, V)>, Vec<K>) {
+        (self.changed, self.removed)
+    }
+
+    pub(crate) fn apply<S: core::hash::BuildHasher>(self, map: &mut HashMap<K, V, S>) {
+        for key in &self.removed {
+            map.remove(key);
+        }
+        map.extend(self.changed);
+    }
+
+    // For maps kept as lists of pairs, keeping their order
+    pub(crate) fn apply_to_pairs(self, pairs: &mut Vec<(K, V)>) {
+        pairs.retain(|(k, _)| !self.removed.contains(k));
+        for (key, value) in self.changed {
+            match pairs.iter_mut().find(|(k, _)| *k == key) {
+                Some(pair) => pair.1 = value,
+                None => pairs.push((key, value)),
+            }
+        }
+    }
+}
+
+/// A saved compiler, as what changed from another (the pass engine's image,
+/// from the default engine's)
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SavedCompilerDelta {
+    symbol_map: SymbolMap,
+    macro_env: MapDelta<InternedString, SteelMacro>,
+    module_manager: crate::compiler::modules::SavedModuleManagerDelta,
+    opt_level: OptLevel,
+    mangled_identifiers: FxHashMap<InternedString, InternedString>,
+    lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
+    phase1_imports: Vec<Phase1Import>,
+    template_globals: crate::compiler::passes::hygiene::TemplateGlobals,
+    lifted_macro_environments: MapDelta<PathBuf, HashSet<InternedString>>,
+    sources: Sources,
+    redefined_builtins: FxHashSet<InternedString>,
+    top_level_variables: FxHashSet<InternedString>,
+    template_imports: Vec<crate::parser::expand_visitor::TemplateImport>,
+    issued_names: (Vec<InternedString>, Vec<(InternedString, u32)>),
+}
+
+impl SavedCompiler {
+    /// What changed from `base`
+    pub(crate) fn delta_from(self, base: &SavedCompiler) -> SavedCompilerDelta {
+        // Every field, so a new one is given a place in the delta
+        let SavedCompiler {
+            symbol_map,
+            macro_env,
+            module_manager,
+            opt_level,
+            mangled_identifiers,
+            lifted_kernel_environments,
+            phase1_imports,
+            template_globals,
+            lifted_macro_environments,
+            sources,
+            redefined_builtins,
+            top_level_variables,
+            template_imports,
+            issued_names,
+        } = self;
+        SavedCompilerDelta {
+            symbol_map,
+            macro_env: MapDelta::between(&base.macro_env, &macro_env),
+            module_manager: module_manager.delta_from(&base.module_manager),
+            opt_level,
+            mangled_identifiers,
+            lifted_kernel_environments,
+            phase1_imports,
+            template_globals,
+            lifted_macro_environments: MapDelta::between(
+                &base.lifted_macro_environments,
+                &lifted_macro_environments,
+            ),
+            sources,
+            redefined_builtins,
+            top_level_variables,
+            template_imports,
+            issued_names,
+        }
+    }
+
+    /// `self` with what changed applied
+    pub(crate) fn with_delta(mut self, delta: SavedCompilerDelta) -> SavedCompiler {
+        let SavedCompilerDelta {
+            symbol_map,
+            macro_env,
+            module_manager,
+            opt_level,
+            mangled_identifiers,
+            lifted_kernel_environments,
+            phase1_imports,
+            template_globals,
+            lifted_macro_environments,
+            sources,
+            redefined_builtins,
+            top_level_variables,
+            template_imports,
+            issued_names,
+        } = delta;
+        macro_env.apply(&mut self.macro_env);
+        lifted_macro_environments.apply(&mut self.lifted_macro_environments);
+        SavedCompiler {
+            symbol_map,
+            macro_env: self.macro_env,
+            module_manager: self.module_manager.with_delta(module_manager),
+            opt_level,
+            mangled_identifiers,
+            lifted_kernel_environments,
+            phase1_imports,
+            template_globals,
+            lifted_macro_environments: self.lifted_macro_environments,
+            sources,
+            redefined_builtins,
+            top_level_variables,
+            template_imports,
+            issued_names,
+        }
+    }
+}
+
+impl SavedCompilerDelta {
+    /// The modules it adds or changes
+    pub(crate) fn modules(&self) -> Vec<(PathBuf, CompactString)> {
+        self.module_manager.module_prefixes()
+    }
+}
+
+impl Compiler {
+    /// Makes this compiler, a copy of the one a delta was made from, the one it
+    /// was made to: the constants and the kernel are set apart
+    pub(crate) fn apply_delta(&mut self, delta: SavedCompilerDelta) {
+        // Every field, so a new one is applied here
+        let SavedCompilerDelta {
+            symbol_map,
+            macro_env,
+            module_manager,
+            opt_level,
+            mangled_identifiers,
+            lifted_kernel_environments,
+            phase1_imports,
+            template_globals,
+            lifted_macro_environments,
+            sources,
+            redefined_builtins,
+            top_level_variables,
+            template_imports,
+            issued_names,
+        } = delta;
+        self.symbol_map = symbol_map;
+        macro_env.apply(&mut self.macro_env);
+        self.module_manager.apply_delta(module_manager);
+        self.opt_level = opt_level;
+        self.mangled_identifiers = mangled_identifiers;
+        self.lifted_kernel_environments = lifted_kernel_environments;
+        self.phase1_imports = phase1_imports;
+        self.template_globals = template_globals;
+        lifted_macro_environments.apply(&mut self.lifted_macro_environments);
+        self.sources = sources;
+        self.redefined_builtins = redefined_builtins;
+        self.top_level_variables = top_level_variables;
+        self.template_imports = template_imports;
+        self.shadowed_variable_renamer.restore_issued_names(issued_names);
+    }
+
+    /// Everything but the constants and the kernel, see `SavedCompiler`
+    pub(crate) fn save(&self) -> SavedCompiler {
+        // Every field, so a new one has to be saved here or said why not
+        let Compiler {
+            symbol_map,
+            // Saved on its own, with the values it holds
+            constant_map: _,
+            macro_env,
+            module_manager,
+            opt_level,
+            // Saved on its own (`SavedKernel`)
+            kernel: _,
+            // Settings, read from the environment again
+            steel_passes: _,
+            // Constant folding results, a cache of pure calls
+            memoization_table: _,
+            mangled_identifiers,
+            lifted_kernel_environments,
+            phase1_imports,
+            template_globals,
+            lifted_macro_environments,
+            // Rebuilt from scratch by every compile (`fresh_from_exprs`)
+            analysis: _,
+            // Only during a compile
+            module_constants: _,
+            pending_snapshots: _,
+            group_lengths: _,
+            module_keeps: _,
+            learned_constants: _,
+            shadowed_variable_renamer,
+            // The host's
+            search_dirs: _,
+            builtin_modules: _,
+            sources,
+            redefined_builtins,
+            top_level_variables,
+            template_imports,
+        } = self;
+        SavedCompiler {
+            symbol_map: symbol_map.clone(),
+            macro_env: macro_env.clone(),
+            module_manager: module_manager.save(),
+            opt_level: *opt_level,
+            mangled_identifiers: mangled_identifiers.clone(),
+            lifted_kernel_environments: lifted_kernel_environments.clone(),
+            phase1_imports: phase1_imports.clone(),
+            template_globals: template_globals.clone(),
+            lifted_macro_environments: lifted_macro_environments.clone(),
+            sources: sources.clone(),
+            redefined_builtins: redefined_builtins.clone(),
+            top_level_variables: top_level_variables.clone(),
+            template_imports: template_imports.clone(),
+            issued_names: shadowed_variable_renamer.issued_names(),
+        }
+    }
+
+    /// A compiler with the saved state, `constant_map`, and no kernel
+    pub(crate) fn restore(
+        saved: SavedCompiler,
+        constant_map: ConstantMap,
+        builtin_modules: ModuleContainer,
+    ) -> Compiler {
+        let mut compiler = Compiler::default_without_kernel(saved.sources, builtin_modules);
+        compiler.symbol_map = saved.symbol_map;
+        compiler.constant_map = constant_map;
+        compiler.macro_env = saved.macro_env;
+        compiler.module_manager.restore(saved.module_manager);
+        compiler.opt_level = saved.opt_level;
+        compiler.mangled_identifiers = saved.mangled_identifiers;
+        compiler.lifted_kernel_environments = saved.lifted_kernel_environments;
+        compiler.phase1_imports = saved.phase1_imports;
+        compiler.template_globals = saved.template_globals;
+        compiler.lifted_macro_environments = saved.lifted_macro_environments;
+        compiler.redefined_builtins = saved.redefined_builtins;
+        compiler.top_level_variables = saved.top_level_variables;
+        compiler.template_imports = saved.template_imports;
+        compiler
+            .shadowed_variable_renamer
+            .restore_issued_names(saved.issued_names);
+        compiler
+    }
 }
 
 pub struct SerializableCompiler {
@@ -665,6 +1013,11 @@ impl Compiler {
             redefined_builtins: FxHashSet::default(),
             top_level_variables: FxHashSet::default(),
             template_imports: Vec::new(),
+            module_constants: Vec::new(),
+            pending_snapshots: Vec::new(),
+            group_lengths: Vec::new(),
+            module_keeps: FxHashMap::default(),
+            learned_constants: Vec::new(),
         }
     }
 
@@ -701,6 +1054,11 @@ impl Compiler {
             redefined_builtins: FxHashSet::default(),
             top_level_variables: FxHashSet::default(),
             template_imports: Vec::new(),
+            module_constants: Vec::new(),
+            pending_snapshots: Vec::new(),
+            group_lengths: Vec::new(),
+            module_keeps: FxHashMap::default(),
+            learned_constants: Vec::new(),
         }
     }
 
@@ -983,12 +1341,47 @@ impl Compiler {
         analysis.analyze_arity_checks()?;
         let analysis = analysis.into_analysis();
 
-        for expr in expanded_statements {
-            let instructions =
-                super::code_gen::CodeGenerator::new(&mut self.constant_map, &analysis)
-                    .top_level_compile(&expr)?;
+        // Lowered a module at a time: each one's code is put together on its own,
+        // with constants and function ids of its own, then linked
+        let groups = core::mem::take(&mut self.group_lengths);
+        let lowered: usize = groups
+            .iter()
+            .map(|g| match g {
+                LoweredGroup::Code(n, _) => *n,
+                LoweredGroup::Cached(_) => 0,
+            })
+            .sum();
+        // Modules read from the cache are only code here
+        let cached = groups.iter().any(|g| matches!(g, LoweredGroup::Cached(_)));
+        if cached && lowered != expanded_statements.len() {
+            stop!(Generic => "modules read from the cache don't match the statements being compiled");
+        }
+        if !groups.is_empty() && lowered == expanded_statements.len() {
+            let mut statements = expanded_statements.into_iter();
+            for group in groups {
+                let object = match group {
+                    LoweredGroup::Code(length, path) => {
+                        let group: Vec<ExprKind> = statements.by_ref().take(length).collect();
+                        let object = ModuleObject::compile(&group, &analysis)?;
+                        if let Some(keep) = path.and_then(|p| self.module_keeps.get_mut(&p)) {
+                            keep.object = Some(object.saved());
+                        }
+                        object
+                    }
+                    LoweredGroup::Cached(cached) => ModuleObject::from_saved(&cached.object)
+                        .ok_or_else(crate::throw!(Generic => "a module from the cache has a constant that can't be read"))?,
+                };
+                results.extend(object.link(&mut self.constant_map));
+            }
+            self.keep_modules();
+        } else {
+            for expr in expanded_statements {
+                let instructions =
+                    super::code_gen::CodeGenerator::new(&mut self.constant_map, &analysis)
+                        .top_level_compile(&expr)?;
 
-            results.push(instructions);
+                results.push(instructions);
+            }
         }
 
         // Push down the readable constant map
@@ -1430,6 +1823,13 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
+        // What an earlier compile that failed, or didn't make code, left
+        let disk = self.module_manager.disk_cache();
+        disk.read.clear();
+        disk.compiled.clear();
+        self.group_lengths.clear();
+        self.module_keeps.clear();
+
         let mut expanded_statements = self.expand_expressions(exprs, path.clone())?;
 
         // println!("---- Post expansion ----");
@@ -1450,6 +1850,164 @@ impl Compiler {
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Top level macro expansion time: {:?}", now.elapsed());
+
+        if !crate::config::config().separate_modules {
+            return self.lower_expanded(expanded_statements);
+        }
+
+        // Each module compiled here, and then the rest, each on its own. Later
+        // ones fold the constants earlier ones define, as they would together.
+        let groups = module_groups(expanded_statements);
+        self.module_keeps.clear();
+        self.module_constants.clear();
+        let mut lowered = Vec::new();
+        let mut non_mutable = Vec::new();
+        // The snapshots kept for later compiles, as a compile of everything
+        // together leaves them
+        let mut kept: Vec<(PathBuf, Option<ExprKind>)> = Vec::new();
+        let mut result = Ok(());
+        let mut lengths = Vec::new();
+        for group in groups {
+            let path = module_blocks(&group).first().map(|(path, _)| path.clone());
+            // Read from the cache: what lowering it would have left for the rest
+            if let Some(cached) = path
+                .as_ref()
+                .and_then(|p| self.module_manager.disk_cache().read.remove(p))
+            {
+                let path = path.unwrap();
+                self.module_constants.extend(cached.learned.iter().cloned());
+                // What lowering it would have found out about its names for builtins
+                self.mangled_identifiers.extend(cached.builtins.iter().copied());
+
+                if let Some(m) = self.module_manager.modules_mut().get_mut(&path) {
+                    let before = core::mem::replace(&mut m.compiled_ast, cached.snapshot.clone());
+                    if !kept.iter().any(|(p, _)| *p == path) {
+                        kept.push((path, before));
+                    }
+                }
+                non_mutable.extend(cached.non_mutable.iter().copied());
+                lengths.push(LoweredGroup::Cached(Box::new(cached)));
+                continue;
+            }
+            let keeping = path
+                .as_ref()
+                .filter(|p| self.module_manager.disk_cache().compiled.contains_key(*p))
+                .cloned();
+            let prefix = path
+                .clone()
+                .map(crate::compiler::modules::path_to_prefix_name);
+            let lowered_group = crate::compiler::passes::analysis::with_generated_name_suffix(
+                prefix,
+                || self.lower_expanded(group),
+            );
+            match lowered_group {
+                Ok(group) => {
+                    lengths.push(LoweredGroup::Code(group.len(), path.clone()));
+                    lowered.extend(group)
+                }
+                Err(e) => {
+                    result = Err(e);
+                    break;
+                }
+            }
+            // What it defined is known to the later ones only
+            let learned = core::mem::take(&mut self.learned_constants);
+            if let Some(p) = &keeping {
+                let keep = self.module_keeps.entry(p.clone()).or_default();
+                keep.learned = learned.clone();
+                keep.non_mutable = self.symbol_map.non_mutable.clone();
+                keep.snapshot = self
+                    .pending_snapshots
+                    .iter()
+                    .find(|(sp, _)| sp == p)
+                    .map(|(_, b)| b.clone());
+            }
+            self.module_constants.extend(learned);
+            // Its own inlining used the snapshot from before, as together it would.
+            // The rest of this compile sees it as the program would have it.
+            for (path, block) in core::mem::take(&mut self.pending_snapshots) {
+                if let Some(m) = self.module_manager.modules_mut().get_mut(&path) {
+                    let before = core::mem::replace(&mut m.compiled_ast, Some(block));
+                    if !kept.iter().any(|(p, _)| *p == path) {
+                        kept.push((path, before));
+                    }
+                }
+            }
+            // Each lowering replaces what it found was never assigned. A module's
+            // globals can't be assigned from outside it, so the sets add up.
+            non_mutable.extend(core::mem::take(&mut self.symbol_map.non_mutable));
+        }
+        for (path, before) in kept {
+            if let Some(m) = self.module_manager.modules_mut().get_mut(&path) {
+                m.compiled_ast = before;
+            }
+        }
+        self.pending_snapshots.clear();
+        self.learned_constants.clear();
+        result?;
+        self.symbol_map.set_non_mutable(non_mutable);
+        self.module_constants.clear();
+        // Code generation reads the analysis of what it compiles: each lowering
+        // left only its own group's
+        self.analysis.fresh_from_exprs(&lowered);
+        self.group_lengths = lengths;
+        Ok(lowered)
+    }
+
+    // Keeps on disk the modules this compile made code for
+    fn keep_modules(&mut self) {
+        let keeps = core::mem::take(&mut self.module_keeps);
+        for (path, keep) in keeps {
+            let Some(compiled) = self.module_manager.disk_cache().compiled.remove(&path) else {
+                continue;
+            };
+            let object = match keep.object {
+                Some(Ok(object)) => object,
+                Some(Err(constant)) => {
+                    if crate::config::config().module_cache_debug {
+                        eprintln!("module cache: not keeping {}: a constant isn't plain data: {constant}", path.display());
+                    }
+                    continue;
+                }
+                None => continue,
+            };
+            let Some(module) = self.module_manager.modules().get(&path) else {
+                continue;
+            };
+            let prefix = module.prefix();
+            let builtins = self
+                .mangled_identifiers
+                .iter()
+                .filter(|(name, _)| name.resolve().starts_with(prefix.as_str()))
+                .map(|(name, reserved)| (*name, *reserved))
+                .collect();
+            crate::compiler::module_cache::keep(
+                crate::compiler::module_cache::Keep {
+                    path: &path,
+                    compiled: &compiled,
+                    module,
+                    snapshot: keep.snapshot.as_ref(),
+                    builtins,
+                    learned: &keep.learned,
+                    non_mutable: &keep.non_mutable,
+                    object,
+                },
+                &self.sources,
+            );
+        }
+    }
+
+    // What other modules inline from: each module block's code as it is now
+    fn record_compiled_modules(&mut self, statements: &[ExprKind]) {
+        for (path, block) in module_blocks(statements) {
+            if let Some(m) = self.module_manager.modules_mut().get_mut(&path) {
+                m.compiled_ast = Some(block);
+            }
+        }
+    }
+
+    // The passes after expansion, over `expanded_statements`
+    fn lower_expanded(&mut self, expanded_statements: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
 
@@ -1581,26 +2139,7 @@ impl Compiler {
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, false);
 
-        let module_context: InternedString = "#%prim.#%push-module-context".into();
-        for top_expr in expanded_statements.iter() {
-            if let ExprKind::Begin(b) = top_expr {
-                for expr in &b.exprs {
-                    if expr.list().and_then(|x| x.first_ident()).copied() == Some(module_context) {
-                        if let Some(found) = expr
-                            .list()
-                            .and_then(|x| x.get(1))
-                            .and_then(|x| x.to_string_literal())
-                        {
-                            let p = PathBuf::from(found);
-                            if let Some(m) = self.module_manager.modules_mut().get_mut(&p) {
-                                m.compiled_ast = Some(top_expr.clone());
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        self.record_compiled_modules(&expanded_statements);
 
         // TODO - make sure I want to keep this
         // let mut expanded_statements =
@@ -1628,6 +2167,12 @@ impl Compiler {
         // Do this, and then inline everything. Do it again
         // TODO: Configure the amount that we inline?
         semantic.inline_function_calls(None, self.modules())?;
+        // A module compiled on its own is seen by later ones as it is here, where a
+        // compile of everything together would have its code in the program: its
+        // definitions with what they call inlined into them
+        if crate::config::config().separate_modules {
+            self.pending_snapshots = module_blocks(semantic.exprs);
+        }
         semantic.refresh_variables_if_changed();
 
         let mut analysis = semantic.into_analysis();
@@ -1923,11 +2468,13 @@ impl Compiler {
     ) -> Result<RawProgramWithSymbols> {
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
 
-        let expanded_statements = self.lower_expressions_impl(exprs, path)?;
+        let instructions = crate::compiler::module_cache::generating_code(|| {
+            let expanded_statements = self.lower_expressions_impl(exprs, path)?;
 
-        log::debug!(target: "expansion-phase", "Generating instructions");
+            log::debug!(target: "expansion-phase", "Generating instructions");
 
-        let instructions = self.generate_instructions_for_executable(expanded_statements, true)?;
+            self.generate_instructions_for_executable(expanded_statements, true)
+        })?;
 
         let mut raw_program = RawProgramWithSymbols::new(
             instructions,
@@ -2051,6 +2598,13 @@ impl Compiler {
 
         let mut maybe_kernel = None;
 
+        // Constants of the modules this compile has lowered before, on their own
+        let base = constants.clone();
+        let mut constants = constants;
+        for (name, value) in &self.module_constants {
+            constants.insert(*name, value.clone());
+        }
+
         if use_kernel {
             if let Some(kernel) = self.kernel.as_mut() {
                 kernel.load_program_for_comptime(constants.clone(), &mut expanded_statements)?;
@@ -2078,6 +2632,10 @@ impl Compiler {
                     if !manager.changed {
                         break;
                     }
+                }
+                if crate::config::config().separate_modules {
+                    let learned = manager.learned_constants(&base);
+                    self.learned_constants.extend(learned);
                 }
             }
             OptLevel::Two => {
@@ -2175,4 +2733,194 @@ fn required_kernel_macros(
             mangler: &mut lifted_env.name_mangler,
         })
         .collect()
+}
+
+#[cfg(test)]
+impl Compiler {
+    /// What `save` leaves out that has to match, by hand: caches and per-compile
+    /// state aren't here (see `save`)
+    pub(crate) fn unsaved_state(&self) -> Vec<(String, String)> {
+        let mut out = vec![("search_dirs".to_string(), format!("{:?}", self.search_dirs))];
+        out.extend(
+            self.symbol_map
+                .unsaved_state()
+                .into_iter()
+                .map(|(k, v)| (format!("symbol_map {k}"), v)),
+        );
+        out.extend(
+            self.module_manager
+                .unsaved_state()
+                .into_iter()
+                .map(|(k, v)| (format!("module_manager {k}"), v)),
+        );
+        if let Some(kernel) = &self.kernel {
+            out.extend(
+                kernel
+                    .unsaved_state()
+                    .into_iter()
+                    .map(|(k, v)| (format!("kernel {k}"), v)),
+            );
+        }
+        out
+    }
+}
+
+// Expanded statements split into what is compiled on its own: each newly
+// compiled module's block, and each run of statements between them
+fn module_groups(statements: Vec<ExprKind>) -> Vec<Vec<ExprKind>> {
+    let context: InternedString = "#%prim.#%push-module-context".into();
+    let is_module = |expr: &ExprKind| match expr {
+        ExprKind::Begin(b) => b
+            .exprs
+            .iter()
+            .any(|e| e.list().and_then(|l| l.first_ident()).copied() == Some(context)),
+        _ => false,
+    };
+    let mut groups: Vec<Vec<ExprKind>> = Vec::new();
+    let mut in_rest = false;
+    for statement in statements {
+        if is_module(&statement) {
+            groups.push(vec![statement]);
+            in_rest = false;
+        } else {
+            if !in_rest {
+                groups.push(Vec::new());
+                in_rest = true;
+            }
+            groups.last_mut().unwrap().push(statement);
+        }
+    }
+    groups
+}
+
+
+// Each module block in `statements`, by its module's path
+fn module_blocks(statements: &[ExprKind]) -> Vec<(PathBuf, ExprKind)> {
+    let module_context: InternedString = "#%prim.#%push-module-context".into();
+    let mut blocks = Vec::new();
+    for top_expr in statements.iter() {
+        if let ExprKind::Begin(b) = top_expr {
+            for expr in &b.exprs {
+                if expr.list().and_then(|x| x.first_ident()).copied() == Some(module_context) {
+                    if let Some(found) = expr
+                        .list()
+                        .and_then(|x| x.get(1))
+                        .and_then(|x| x.to_string_literal())
+                    {
+                        blocks.push((PathBuf::from(found), top_expr.clone()));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    blocks
+}
+
+/// A module's code put together on its own: its instructions, with the payloads
+/// that are its own numbers (constants, function ids) marked, and its constants
+pub(crate) struct ModuleObject {
+    instructions: Vec<Vec<Instruction>>,
+    relocations: Vec<Vec<(usize, crate::core::labels::Reloc)>>,
+    constants: Vec<SteelVal>,
+    functions: usize,
+}
+
+impl ModuleObject {
+    fn compile(statements: &[ExprKind], analysis: &Analysis) -> Result<Self> {
+        let mut constants = ConstantMap::new();
+        let mut instructions = Vec::with_capacity(statements.len());
+        let mut relocations = Vec::with_capacity(statements.len());
+        let mut functions = 0;
+        crate::compiler::code_gen::with_local_function_ids(|| -> Result<()> {
+            for expr in statements {
+                let (code, relocs) =
+                    super::code_gen::CodeGenerator::new(&mut constants, analysis)
+                        .top_level_compile_relocatable(expr)?;
+                instructions.push(code);
+                relocations.push(relocs);
+            }
+            functions = crate::compiler::code_gen::fresh_function_id();
+            Ok(())
+        })?;
+        Ok(ModuleObject {
+            instructions,
+            relocations,
+            constants: (0..constants.len()).map(|i| constants.get(i)).collect(),
+            functions,
+        })
+    }
+
+    // As kept on disk, if its constants can be
+    fn saved(&self) -> core::result::Result<crate::compiler::module_cache::SavedObject, String> {
+        crate::compiler::module_cache::SavedObject::new(
+            self.instructions.clone(),
+            self.relocations.clone(),
+            &self.constants,
+            self.functions,
+        )
+    }
+
+    fn from_saved(saved: &crate::compiler::module_cache::SavedObject) -> Option<Self> {
+        Some(ModuleObject {
+            instructions: saved.instructions.clone(),
+            relocations: saved.relocations.clone(),
+            constants: saved.constants()?,
+            functions: saved.functions,
+        })
+    }
+
+    /// The code with its constants put in `constant_map` and its functions given
+    /// ids of this process
+    fn link(self, constant_map: &mut ConstantMap) -> Vec<Vec<Instruction>> {
+        use crate::core::labels::Reloc;
+        let constants: Vec<usize> = self
+            .constants
+            .into_iter()
+            .map(|value| constant_map.add_or_get(value))
+            .collect();
+        let functions: Vec<usize> = (0..self.functions)
+            .map(|_| crate::compiler::code_gen::fresh_function_id())
+            .collect();
+        let mut instructions = self.instructions;
+        for (code, relocs) in instructions.iter_mut().zip(self.relocations) {
+            for (index, reloc) in relocs {
+                let local = code[index].payload_size.to_usize();
+                let here = match reloc {
+                    Reloc::Constant => constants[local],
+                    Reloc::Function => functions[local],
+                };
+                code[index].payload_size = crate::core::instructions::u24::from_usize(here);
+            }
+        }
+        instructions
+    }
+}
+
+
+#[cfg(test)]
+mod separate_module_tests {
+    use super::*;
+
+    // Code for a module read from the cache that doesn't line up with what's
+    // being compiled is an error, not a program without that module
+    #[test]
+    fn cached_modules_that_dont_line_up_are_an_error() {
+        let engine = crate::steel_vm::engine::Engine::new();
+        let mut compiler = engine.virtual_machine.compiler.write();
+        compiler.group_lengths = vec![LoweredGroup::Cached(Box::new(
+            crate::compiler::module_cache::CachedModule {
+                snapshot: None,
+                builtins: Vec::new(),
+                learned: Vec::new(),
+                non_mutable: Vec::new(),
+                object: crate::compiler::module_cache::SavedObject::new(Vec::new(), Vec::new(), &[], 0)
+                    .unwrap(),
+            },
+        ))];
+        let statements = crate::parser::parser::Parser::parse("(+ 1 2)").unwrap();
+        assert!(compiler
+            .generate_instructions_for_executable(statements, false)
+            .is_err());
+    }
 }

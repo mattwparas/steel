@@ -839,11 +839,13 @@ fn defines_are_sequential(exprs: &[ExprKind]) -> bool {
 pub(crate) fn written_name(name: &str) -> String {
     use crate::compiler::modules::MANGLER_PREFIX;
 
-    // What a require a template wrote imports, `#%template<n>:<name>`
+    // What a require a template wrote imports, `#%template<n>:<name>`, or in a
+    // module `#%template<n>@<module prefix>:<name>`
     if let Some((n, base)) = name
         .strip_prefix("#%template")
         .and_then(|x| x.split_once(':'))
     {
+        let n = n.split_once('@').map(|(n, _)| n).unwrap_or(n);
         if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) {
             return written_name(base);
         }
@@ -1470,6 +1472,7 @@ mod written_name_tests {
         assert_eq!(written_name("####mm5__%#__x#12"), "x");
         assert_eq!(written_name("x#1"), "x#1");
         assert_eq!(written_name("#%template3:x"), "x");
+        assert_eq!(written_name("#%template3@##mm4__%#__:x"), "x");
         assert_eq!(written_name("####tmp2#2147485264"), "tmp2");
     }
 }

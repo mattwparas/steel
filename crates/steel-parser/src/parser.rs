@@ -29,13 +29,44 @@ use thin_vec::{thin_vec, ThinVec};
 
 static SOURCE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+/// The number the next source gets
+pub fn source_id_counter() -> u32 {
+    SOURCE_ID_COUNTER.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+/// Makes later sources number at least `n` (see `raise_scope_counter`)
+pub fn raise_source_id_counter(n: u32) {
+    SOURCE_ID_COUNTER.fetch_max(n, core::sync::atomic::Ordering::Relaxed);
+}
+
 pub const MAX_PREFIX_DEPTH: u32 = 512;
 
-#[derive(
-    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug, Ord, PartialOrd)]
 #[repr(C)]
 pub struct SourceId(pub u32);
+
+impl Serialize for SourceId {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> core::result::Result<S::Ok, S::Error> {
+        #[cfg(feature = "std")]
+        crate::tables::write_source(self.0);
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SourceId {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> core::result::Result<Self, D::Error> {
+        let id = u32::deserialize(deserializer)?;
+        #[cfg(feature = "std")]
+        return Ok(SourceId(crate::tables::relocate_source(id)));
+        #[cfg(not(feature = "std"))]
+        Ok(SourceId(id))
+    }
+}
 
 impl SourceId {
     pub const fn none() -> Option<Self> {
@@ -54,10 +85,50 @@ pub static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 //     pub static TL_SYNTAX_OBJECT_ID: Cell<u32> = Cell::new(0);
 // }
 
-#[derive(
-    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug, Ord, PartialOrd)]
 pub struct SyntaxObjectId(pub u32);
+
+impl<'de> Deserialize<'de> for SyntaxObjectId {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> core::result::Result<Self, D::Error> {
+        read_syntax_id(deserializer).map(SyntaxObjectId)
+    }
+}
+
+/// A syntax object's id, moved past this process's when a module's saved code is
+/// read (`tables::relocating`)
+pub fn read_syntax_id<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> core::result::Result<u32, D::Error> {
+    let id = u32::deserialize(deserializer)?;
+    #[cfg(feature = "std")]
+    return Ok(crate::tables::relocate_syntax_id(id));
+    #[cfg(not(feature = "std"))]
+    Ok(id)
+}
+
+impl Serialize for SyntaxObjectId {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> core::result::Result<S::Ok, S::Error> {
+        write_syntax_id(&self.0, serializer)
+    }
+}
+
+/// A syntax object's id, or 0 while values are compared without them
+/// (`tables::comparing`): copies of syntax get new ids
+pub fn write_syntax_id<S: serde::Serializer>(
+    id: &u32,
+    serializer: S,
+) -> core::result::Result<S::Ok, S::Error> {
+    #[cfg(feature = "std")]
+    if crate::tables::is_comparing() {
+        return serializer.serialize_u32(0);
+    }
+    serializer.serialize_u32(*id)
+}
 
 impl SyntaxObjectId {
     #[inline]
@@ -141,7 +212,7 @@ pub struct RawSyntaxObject<T> {
     pub unresolved: bool,
     pub introduced_via_macro: bool,
     // Racket-style scope set for this identifier
-    #[serde(skip)]
+    #[serde(default)]
     pub scopes: crate::scopes::ScopeSetId,
 }
 
@@ -3332,7 +3403,10 @@ mod parser_tests {
         assert_parse(
             "(define (#%join-identifiers var) (car ret-value))",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::List(List::new(thin_vec![atom("#%join-identifiers"), atom("var")])),
+                ExprKind::List(List::new(thin_vec![
+                    atom("#%join-identifiers"),
+                    atom("var")
+                ])),
                 ExprKind::List(List::new(thin_vec![atom("car"), atom("ret-value")])),
                 SyntaxObject::default(TokenType::Define),
             )))],
@@ -3344,7 +3418,10 @@ mod parser_tests {
         assert_parse(
             "(define ((#%join-identifiers var) arg) 10)",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::List(List::new(thin_vec![atom("#%join-identifiers"), atom("var")])),
+                ExprKind::List(List::new(thin_vec![
+                    atom("#%join-identifiers"),
+                    atom("var")
+                ])),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                     thin_vec![atom("arg")],
                     int(10),

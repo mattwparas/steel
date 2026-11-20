@@ -127,3 +127,14 @@ pub(crate) fn clear() {
     ANSWERS.with(|x| x.borrow_mut().clear());
     REQUESTS.with(|x| x.borrow_mut().clear());
 }
+
+#[cfg(test)]
+pub(crate) fn thread_state_for_tests() -> Vec<(&'static str, String)> {
+    let mut answers: Vec<String> = ANSWERS.with(|x| x.borrow().keys().cloned().collect());
+    answers.sort();
+    vec![
+        ("ANSWERS", format!("{answers:?}")),
+        ("REQUESTS", REQUESTS.with(|x| x.borrow().len()).to_string()),
+        ("ASKING", ASKING.with(|x| x.get()).to_string()),
+    ]
+}
