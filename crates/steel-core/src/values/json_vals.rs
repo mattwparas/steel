@@ -106,12 +106,17 @@ impl TryFrom<Value> for SteelVal {
     }
 }
 
-// TODO
 impl TryFrom<Number> for SteelVal {
     type Error = SteelErr;
     fn try_from(n: Number) -> core::result::Result<Self, Self::Error> {
-        let result = n.as_f64().unwrap();
-        Ok(SteelVal::NumV(result))
+        // Keep JSON integers exact; going through f64 rounds them above 2^53.
+        if let Some(i) = n.as_i64() {
+            Ok(i.into())
+        } else if let Some(u) = n.as_u64() {
+            Ok(SteelVal::BigNum(Gc::new(u.into())))
+        } else {
+            Ok(SteelVal::NumV(n.as_f64().unwrap()))
+        }
     }
 }
 
@@ -219,6 +224,27 @@ mod json_tests {
                 SymbolV("b".into()) => StringV("bananas".into())
             })
             .into(),
+        );
+
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_string_to_jsexpr_keeps_integers_exact() {
+        let json_expr = "[3, 1.5, 9007199254740993, -9223372036854775808, 18446744073709551615]";
+
+        let result = string_to_jsexpr(&json_expr.into());
+
+        let expected = ListV(
+            [
+                SteelVal::from(3i64),
+                NumV(1.5),
+                SteelVal::from(9007199254740993i64),
+                SteelVal::from(i64::MIN),
+                BigNum(Gc::new(u64::MAX.into())),
+            ]
+            .into_iter()
+            .collect(),
         );
 
         assert_eq!(result.unwrap(), expected);
